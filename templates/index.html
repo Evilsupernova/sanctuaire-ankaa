@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+
+  <title>Sanctuaire Ankaa</title>
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.json">
+  <meta name="theme-color" content="#0b0b10">
+  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black">
+
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <!-- Bouton ☥ pour ré-ouvrir l’overlay en haut-gauche -->
+  <button id="btn-mode-mini" title="Choisir un mode">☥</button>
+
+  <!-- Aura + Œil (garde tes classes existantes) -->
+  <div id="aura-ankaa">
+    <div class="oeil-centre"></div>
+  </div>
+
+  <!-- Header sanctuaire -->
+  <header class="entete">
+    <button id="btn-sanctuaire" class="btn sanctuaire">Sanctuaire</button>
+    <h1 class="titre">Sanctuaire Ankaa</h1>
+  </header>
+
+  <!-- Papyrus vivant -->
+  <section id="papyrus">
+    <div id="papyrus-content"></div>
+  </section>
+
+  <!-- Zone d’entrée + bouton Invoquer -->
+  <footer class="bas">
+    <textarea id="user-input" rows="2" placeholder="Parle à Ankaa…"></textarea>
+    <button id="btn-invoquer" class="btn invoquer" disabled>Invoquer</button>
+    <button id="btn-souffle" class="btn souffle" title="Souffle sacré">𓂀</button>
+  </footer>
+
+  <!-- Audio : musique sacrée + voix TTS -->
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3" loop></audio>
+  <audio id="voix-ankaa"></audio>
+
+  <!-- Overlay de sélection de mode -->
+  <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
+    <div class="mode-panel">
+      <div class="mode-title">Choisis ton mode</div>
+      <div class="mode-sub">Sélectionne librement le visage d’Ankaa pour cet échange.</div>
+
+      <div class="mode-grid">
+        <div class="mode-option" data-mode="sentinelle8">
+          <div class="mode-name">Sentinelle8</div>
+          <div class="mode-desc">Clair, fraternel, protecteur.</div>
+        </div>
+        <div class="mode-option" data-mode="dragosly23">
+          <div class="mode-name">Dragosly23</div>
+          <div class="mode-desc">Complice, joueur, émerveillé.</div>
+        </div>
+        <div class="mode-option" data-mode="invite">
+          <div class="mode-name">Invité</div>
+          <div class="mode-desc">Accueil, douceur, simplicité.</div>
+        </div>
+        <div class="mode-option" data-mode="verbe">
+          <div class="mode-name">Verbe Sacré</div>
+          <div class="mode-desc">Oraculaire, imagé, net.</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="/static/script.js"></script>
+  <script>
+    // PWA : enregistrement du service worker à la racine
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => {
+        navigator.serviceWorker.register("/service-worker.js").catch(console.error);
+      });
+    }
+    // Démarre la musique sacrée bas volume (user gesture requis selon navigateur)
+    const mus = document.getElementById('musique-sacree');
+    if (mus) { mus.volume = 0.6; /* démarrage via geste utilisateur recommandé */ }
+  </script>
+</body>
+</html>
