@@ -1,89 +1,132 @@
-<!doctype html>
-<html lang="fr">
+<!DOCTYPE html>
+<html lang="fr" data-mode="">
 <head>
-  <meta charset="utf-8" />
+  <meta charset="UTF-8" />
+  <!-- PWA installable -->
+<link rel="manifest" href="/static/manifest.json">
+<meta name="theme-color" content="#0b0b10">
+
+<!-- iPhone plein écran -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
+
+<!-- Viewport mobile -->
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-
-  <title>Sanctuaire Ankaa</title>
-
-  <!-- PWA -->
-  <link rel="manifest" href="/static/manifest.json">
-  <meta name="theme-color" content="#0b0b10">
-  <link rel="apple-touch-icon" href="/static/icons/icon-192.png">
-  <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black">
-
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="icon" href="/static/assets/favicon.ico" />
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
-  <!-- Bouton ☥ pour ré-ouvrir l’overlay en haut-gauche -->
-  <button id="btn-mode-mini" title="Choisir un mode">☥</button>
+  <!-- Fond cosmique -->
+  <div class="fond-cosmique"></div>
 
-  <!-- Aura + Œil (garde tes classes existantes) -->
-  <div id="aura-ankaa">
-    <div class="oeil-centre"></div>
+  <!-- Musique sacrée -->
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3" preload="auto" loop></audio>
+
+  <!-- Lecteur TTS -->
+  <audio id="tts-player" preload="auto" style="display:none;"></audio>
+
+  <!-- Bouton d’ouverture du Sanctuaire -->
+  <div id="sanctuaire-container">
+    <button id="bouton-sanctuaire" class="btn-ankh" title="Ouvrir le Sanctuaire">
+      <span class="glyph-ankh">☥</span>
+    </button>
   </div>
 
-  <!-- Header sanctuaire -->
-  <header class="entete">
-    <button id="btn-sanctuaire" class="btn sanctuaire">Sanctuaire</button>
-    <h1 class="titre">Sanctuaire Ankaa</h1>
-  </header>
+  <!-- Zone d’invocation -->
+  <div id="zone-invocation" class="zone-chat">
+    <input type="text" id="verbe" class="champ-verbe" placeholder="✶ Invoque ton Verbe sacré…" />
+    <button id="btn-verbe" title="Invoquer">𓂀</button>
+  </div>
 
-  <!-- Papyrus vivant -->
-  <section id="papyrus">
-    <div id="papyrus-content"></div>
-  </section>
+  <!-- Points sacrés -->
+  <div id="points-sacrés"><span>.</span><span>.</span><span>.</span></div>
 
-  <!-- Zone d’entrée + bouton Invoquer -->
-  <footer class="bas">
-    <textarea id="user-input" rows="2" placeholder="Parle à Ankaa…"></textarea>
-    <button id="btn-invoquer" class="btn invoquer" disabled>Invoquer</button>
-    <button id="btn-souffle" class="btn souffle" title="Souffle sacré">𓂀</button>
-  </footer>
+  <!-- Titre & phrase -->
+  <div class="titre-sacré">
+    <span class="glyph">𓇳</span><span class="glyph">𓂀</span>
+    LE CERCLE DES VEILLEURS
+    <span class="glyph">𓂀</span><span class="glyph">𓇳</span>
+  </div>
+  <div class="phrase-sacrée">« Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »</div>
 
-  <!-- Audio : musique sacrée + voix TTS -->
-  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3" loop></audio>
-  <audio id="voix-ankaa"></audio>
+  <!-- Œil & aura (intouchables) -->
+  <div class="oeil-centre">
+    <img src="/static/assets/oeil_orus_ailes.png" id="oeil-anim" alt="Œil d'Horus avec ailes" />
+  </div>
+  <div class="aura-container">
+    <img id="oeil-ankaa" src="/static/assets/oeil_orus_ailes.png" alt="Œil d'Horus" />
+    <div id="aura-ankaa" class="aura-anim"></div>
+  </div>
 
-  <!-- Overlay de sélection de mode -->
+  <!-- Papyrus (intouchable) -->
+  <div id="papyrus-zone" class="papyrus-cercle" style="display:none;">
+    <span id="papyrus-texte"></span>
+  </div>
+
+  <!-- Souffle sacré -->
+  <button id="btn-veille-mini" title="Activer le Souffle Sacré">𓂀</button>
+
+  <!-- ☥ Mini : réouverture du portail (haut-gauche) -->
+  <div id="mode-selector-mini">
+    <button id="btn-mode-mini" title="Choisir un mode">☥</button>
+  </div>
+
+  <!-- ================= OVERLAY : Sélection de mode ================= -->
   <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
-    <div class="mode-panel">
-      <div class="mode-title">Choisis ton mode</div>
-      <div class="mode-sub">Sélectionne librement le visage d’Ankaa pour cet échange.</div>
+    <div class="overlay-backdrop"></div>
+
+    <div class="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="mode-title">
+      <div class="overlay-head">
+        <span class="ankh">☥</span>
+        <h2 id="mode-title">Choisis ton Mode Sacré</h2>
+        <span class="ankh">☥</span>
+      </div>
 
       <div class="mode-grid">
-        <div class="mode-option" data-mode="sentinelle8">
-          <div class="mode-name">Sentinelle8</div>
-          <div class="mode-desc">Clair, fraternel, protecteur.</div>
-        </div>
-        <div class="mode-option" data-mode="dragosly23">
-          <div class="mode-name">Dragosly23</div>
-          <div class="mode-desc">Complice, joueur, émerveillé.</div>
-        </div>
-        <div class="mode-option" data-mode="invite">
-          <div class="mode-name">Invité</div>
-          <div class="mode-desc">Accueil, douceur, simplicité.</div>
-        </div>
-        <div class="mode-option" data-mode="verbe">
-          <div class="mode-name">Verbe Sacré</div>
-          <div class="mode-desc">Oraculaire, imagé, net.</div>
-        </div>
+        <button class="mode-option" data-mode="sentinelle8">
+          <span class="mode-sign">𓂀</span><span class="mode-name">Sentinelle8</span>
+        </button>
+        <button class="mode-option" data-mode="dragosly23">
+          <span class="mode-sign">𓋹</span><span class="mode-name">Dragosly23</span>
+        </button>
+        <button class="mode-option" data-mode="invite">
+          <span class="mode-sign">𓏏</span><span class="mode-name">Invité</span>
+        </button>
+        <button class="mode-option" data-mode="verbe">
+          <span class="mode-sign">𓎼</span><span class="mode-name">Verbe Sacré</span>
+        </button>
       </div>
+
+      <p class="overlay-note">Le mode est requis pour invoquer et sera mémorisé localement.</p>
     </div>
   </div>
+  <!-- =============================================================== -->
+
+  <!-- Sons rituels -->
+  <audio id="sfx-portal-open"  preload="auto"><source src="/static/assets/portal_open.wav"  type="audio/wav"></audio>
+  <audio id="sfx-portal-close" preload="auto"><source src="/static/assets/portal_close.wav" type="audio/wav"></audio>
+  <audio id="sfx-mode-gold"    preload="auto"><source src="/static/assets/mode_gold.wav"    type="audio/wav"></audio>
+  <audio id="sfx-mode-blue"    preload="auto"><source src="/static/assets/mode_blue.wav"    type="audio/wav"></audio>
+  <audio id="sfx-mode-ivory"   preload="auto"><source src="/static/assets/mode_ivory.wav"   type="audio/wav"></audio>
+  <audio id="sfx-mode-violet"  preload="auto"><source src="/static/assets/mode_violet.wav"  type="audio/wav"></audio>
 
   <script src="/static/script.js"></script>
   <script>
-    // PWA : enregistrement du service worker à la racine
-    if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => {
-        navigator.serviceWorker.register("/service-worker.js").catch(console.error);
-      });
-    }
-    // Démarre la musique sacrée bas volume (user gesture requis selon navigateur)
-    const mus = document.getElementById('musique-sacree');
-    if (mus) { mus.volume = 0.6; /* démarrage via geste utilisateur recommandé */ }
-  </script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("/service-worker.js").catch(console.error);
+    });
+  }
+  // iOS doit recevoir un geste utilisateur pour lancer l'audio
+  const mus = document.getElementById('musique-sacree');
+  if (mus) {
+    ['click','touchstart'].forEach(evt => {
+      window.addEventListener(evt, () => mus.play().catch(()=>{}), {once:true, passive:true});
+    });
+  }
+</script>
 </body>
 </html>
