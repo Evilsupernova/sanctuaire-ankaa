@@ -1,11 +1,11 @@
-# app.py — Sanctuaire Ankaa V10 STABLE (Render-friendly TTS, sans SSML)
+# app.py — Sanctuaire Ankaa V10 STABLE (voix Render OK, sans SSML)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
 from flask import Flask, render_template, request, jsonify
 
-# edge-tts (sans SSML, sans pitch/rate)
+# edge-tts (texte simple, aucune option SSML)
 try:
     import edge_tts
 except Exception:
@@ -14,13 +14,13 @@ except Exception:
 app = Flask(__name__, static_url_path="/static")
 
 BASE    = Path(__file__).parent.resolve()
-DATASET = BASE / "dataset"
+DATASET = BASE / "dataset"           # <- dataset local du projet
 MEMORY  = BASE / "memory"
 AUDIO   = BASE / "static" / "assets"
 MEMORY.mkdir(exist_ok=True)
 AUDIO.mkdir(parents=True, exist_ok=True)
 
-# ---- Voix FEMME = invocation / HOMME = souffle
+# ---- Voix: FEMME = invocation / HOMME = souffle
 VOIX_FEMME = {
     "sentinelle8": "fr-FR-DeniseNeural",
     "dragosly23":  "fr-CA-SylvieNeural",
@@ -74,7 +74,7 @@ def build_index():
             if not toks: continue
             FRAGS.append({"id":len(FRAGS),"text":frag,"tokens":toks})
             for t in set(toks): DF[t]+=1
-    N=len(FRAGS); print(f"[INDEX] {N} fragments.")
+    N=len(FRAGS); print(f"[INDEX] %d fragments."%N)
 build_index()
 def _bm25(q):
     if not FRAGS: return []
@@ -118,9 +118,9 @@ def souffle_answer() -> str:
     fin=random.choice(["— Respire, je suis là.","— Laisse la lumière t’habiter.","— Doucement, tout va bien."])
     return f"{body}\n\n{fin}"
 
-# ---- TTS sans SSML (compatible Render)
+# ---- TTS (edge-tts sans SSML)
 async def _tts_plain(text: str, voice: str, out: Path):
-    comm = edge_tts.Communicate(_clean(text), voice=voice)  # pas de ssml
+    comm = edge_tts.Communicate(_clean(text), voice=voice)
     await comm.save(str(out))
 
 def tts_generate(text: str, voice: str, out: Path) -> str:
