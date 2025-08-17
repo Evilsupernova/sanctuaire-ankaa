@@ -15,6 +15,24 @@ document.addEventListener('DOMContentLoaded', () => {
   const eye  = document.querySelector('.oeil-centre');
   const header = document.getElementById('en-tete');
 
+  // A mettre au tout début du DOMContentLoaded
+(function unlockIOS(){
+  const ids=['musique-sacree','tts-player'];
+  function arm(){
+    ids.forEach(id=>{
+      const a=document.getElementById(id);
+      if(!a) return;
+      a.muted=true;
+      const p=a.play();
+      if(p && p.finally) p.finally(()=>{ a.pause(); a.currentTime=0; a.muted=false; });
+    });
+    window.removeEventListener('touchstart', arm, {passive:true});
+    window.removeEventListener('click', arm, {passive:true});
+  }
+  window.addEventListener('touchstart', arm, {once:true, passive:true});
+  window.addEventListener('click', arm, {once:true, passive:true});
+})();
+
   // volumes (doux)
   if (bgm) bgm.volume = 0.22;
 
