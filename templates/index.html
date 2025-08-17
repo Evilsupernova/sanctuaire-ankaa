@@ -5,7 +5,7 @@
   <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
 
   <!-- PWA -->
-  <link rel="manifest" href="/static/manifest.json?v=8">
+  <link rel="manifest" href="/static/manifest.json?v=10">
   <meta name="theme-color" content="#0b0b10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,15 +13,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 
   <link rel="icon" href="/static/assets/favicon.ico" />
-  <link rel="stylesheet" href="/static/style.css?v=8" />
-  <script defer src="/static/script.js?v=8"></script>
+  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <script defer src="/static/script.js?v=10"></script>
 </head>
 <body>
   <!-- Fond -->
   <div class="fond-cosmique"></div>
 
   <!-- Audio (musique + TTS + sons UI) -->
-  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=8" preload="auto" loop></audio>
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=10" preload="auto" loop></audio>
   <audio id="tts-player" preload="auto" style="display:none;"></audio>
   <audio id="s-click"  src="/static/assets/ui_click.mp3" preload="auto"></audio>
   <audio id="s-open"   src="/static/assets/portal_open.mp3" preload="auto"></audio>
@@ -81,7 +81,7 @@
   <!-- SW -->
   <script>
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=8"));
+      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=10"));
     }
   </script>
 </body>
