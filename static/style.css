@@ -6,41 +6,55 @@ html,body{
   overflow:hidden; font-family:'Cinzel Decorative','Georgia',serif;
 }
 
-:root { --chat-h: 64px; }
+/* Variables dynamiques */
+:root { --chat-h: 64px; --tools-gap: 10px; }
 
 /* Fond cosmique */
 .fond-cosmique{
   position:fixed; inset:0; z-index:0;
   background:url('/static/assets/fond_cosmique.jpg') center/cover no-repeat;
-  background-attachment:scroll;
 }
 
-/* Titres */
+/* En-tête (réserve de place mesurée) */
+#en-tete{ position:relative; z-index:2; padding-top: calc(6px + env(safe-area-inset-top)); }
 .titre-sacré{
-  position:relative; z-index:2; text-align:center; color:#ffe066;
-  margin: calc(6px + env(safe-area-inset-top)) auto 2px;
-  font-weight:700; letter-spacing:.11em;
+  text-align:center; color:#ffe066; font-weight:700; letter-spacing:.11em;
   text-shadow:0 0 10px #000, 0 0 32px #ffe066;
   font-size:clamp(18px,3.2vw,40px);
+  margin: 2px 12px 4px;
 }
 .phrase-sacrée{
-  position:relative; z-index:2; text-align:center; color:#fff9c4;
-  margin:2px auto 10px; font-style:italic;
+  text-align:center; color:#fff9c4; font-style:italic;
   text-shadow:0 0 4px #000, 0 0 18px #ffe066;
   font-size:clamp(14px,2.2vw,22px);
+  margin: 0 12px 6px;
 }
 
-/* Œil + aura */
+/* Colonne d'outils (empilée) — ne chevauche pas le titre */
+#tools-column{
+  position:fixed;
+  left:12px;
+  top:calc(72px + env(safe-area-inset-top)); /* sous le titre */
+  z-index:10050;
+  display:flex; flex-direction:column; gap:var(--tools-gap);
+}
+.tool-btn{
+  background:rgba(32,28,8,.60); color:#ffe066; border:1px solid rgba(255,224,102,.25);
+  width:44px; height:44px; border-radius:30px; font-size:1.1em; cursor:pointer; backdrop-filter:blur(2px);
+  box-shadow:0 0 7px rgba(255,224,102,.22); transition:background .12s, box-shadow .13s, transform .12s, border-color .12s;
+}
+.tool-btn:hover,.tool-btn:focus{ background:#ffe066; color:#2c2108; transform:translateY(-1px); border-color:rgba(255,224,102,.55); box-shadow:0 0 16px 4px #ffe06699; }
+
+/* Œil + aura (un peu plus grand) */
 .oeil-centre{
   position:relative; z-index:2;
-  width:min(62vw,36vh);
-  width:clamp(210px,54vw,360px);
+  width:clamp(240px,60vw,420px);      /* ← plus grand */
   margin:clamp(8px,2.5vh,28px) auto 0;
 }
 #oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; }
 #aura-ankaa{
   position:absolute; left:50%; top:52%; transform:translate(-50%,-50%);
-  pointer-events:none; z-index:1; width:90%; height:65%;
+  pointer-events:none; z-index:1; width: 95%; height: 70%;
   filter:blur(16px) brightness(1.05);
   background:radial-gradient(ellipse 60% 42% at 50% 50%, #ffe06666 15%, #ffe06622 60%, #0000 100%);
   opacity:0; transition:opacity .25s ease;
@@ -58,9 +72,9 @@ html,body{
   box-shadow:0 2px 16px #e7cd7296; color:#FFFFF0; backdrop-filter:blur(2.2px);
   display:flex; align-items:flex-end;
 }
-#papyrus-texte{ white-space:pre-wrap; word-break:break-word; font-size:clamp(14px,2.1vw,18px); line-height:1.42; }
+#papyrus-texte{ white-space:pre-wrap; word-break:break-word; font-size:clamp(13px,1.9vw,17px); line-height:1.42; }
 
-/* Zone chat */
+/* Zone chat (bas) */
 .zone-chat{
   position:fixed; z-index:3; left:50%; transform:translateX(-50%);
   bottom:calc(12px + env(safe-area-inset-bottom));
@@ -78,36 +92,7 @@ html,body{
 #points-sacrés{ position:fixed; bottom:2vh; left:2vw; z-index:9999; font:700 24px 'Papyrus',serif; color:#084638; letter-spacing:6px; display:none; animation:clignote 1.2s infinite ease-in-out; }
 @keyframes clignote{ 0%{opacity:.2} 50%{opacity:1} 100%{opacity:.2} }
 
-/* Boutons périphériques */
-#sanctuaire-container{ position:fixed; top:13px; right:13px; z-index:99; }
-.btn-ankh{
-  background:rgba(34,27,10,.22); border:none; border-radius:88px; padding:.22em .44em; min-width:0;
-  font-size:2.1em; cursor:pointer; opacity:.44; transition:opacity .16s, box-shadow .19s, background .12s;
-  box-shadow:0 0 8px #dac65a38; color:#ecd971; display:flex; align-items:center; justify-content:center;
-}
-.btn-ankh:hover,.btn-ankh:focus{ opacity:.88; background:rgba(44,38,18,.23); box-shadow:0 0 16px 6px #dac65a99, 0 0 2px #fff7de99; }
-
-#mode-selector-mini{ position:fixed; top:calc(12px + env(safe-area-inset-top)); left:12px; z-index:10050; }
-#btn-mode-mini{
-  background:rgba(32,28,8,.60); color:#ffe066; border:1px solid rgba(255,224,102,.25);
-  width:44px; height:44px; border-radius:30px; font-size:1.05em; cursor:pointer; backdrop-filter:blur(2px);
-  box-shadow:0 0 7px rgba(255,224,102,.22); transition:background .12s, box-shadow .13s, transform .12s, border-color .12s;
-  visibility:hidden;
-}
-#btn-mode-mini:hover,#btn-mode-mini:focus{ background:#ffe066; color:#2c2108; transform:translateY(-1px); border-color:rgba(255,224,102,.55); box-shadow:0 0 16px 4px #ffe06699; }
-
-#btn-veille-mini{
-  position:fixed;
-  right:18px;
-  bottom:calc(var(--chat-h) + 40px + env(safe-area-inset-bottom));
-  z-index:2222;
-  background:rgba(32,28,8,.6); color:#ffe066; border:none; font-size:1.34em;
-  border-radius:30px; width:38px; height:38px; box-shadow:0 0 7px #ffe06622; cursor:pointer;
-  transition:background .12s, box-shadow .13s; display:flex; align-items:center; justify-content:center;
-}
-#btn-veille-mini:hover,#btn-veille-mini.active{ background:#ffe066; color:#2c2108; box-shadow:0 0 14px 3px #ffe06688; }
-
-/* Overlay */
+/* Overlay sélection de mode */
 #mode-overlay{ position:fixed; inset:0; z-index:10000; display:grid; place-items:center; }
 .overlay-hidden{ display:none !important; }
 .overlay-backdrop{
@@ -141,12 +126,11 @@ html,body{
 /* Grands écrans très hauts (Pro Max) */
 @media (min-aspect-ratio: 19/9) and (max-width: 460px){
   .zone-chat{ gap:8px; }
-  #btn-veille-mini{ bottom:calc(var(--chat-h) + 48px + env(safe-area-inset-bottom)); }
 }
 
 /* Petits écrans (SE/mini) */
 @media (max-width: 380px){
-  .oeil-centre{ width:clamp(200px,60vw,320px); }
+  .oeil-centre{ width:clamp(220px,64vw,360px); }
   .titre-sacré{ font-size:16px; }
   .phrase-sacrée{ font-size:13px; }
 }
