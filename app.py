@@ -1,11 +1,10 @@
-# app.py — Sanctuaire Ankaa (RAG dataset + TTS + PWA)
+# app.py — Sanctuaire Ankaa (RAG dataset + TTS FR + sons)
 import os, re, json, asyncio, math, unicodedata
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, send_from_directory
 
-# ---------- App ----------
 app = Flask(__name__, static_url_path="/static")
 BASE_DIR    = Path(__file__).parent.resolve()
 DATASET_DIR = BASE_DIR / "dataset"
@@ -14,7 +13,7 @@ AUDIO_DIR   = BASE_DIR / "static" / "assets"
 MEMORY_DIR.mkdir(exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---------- TTS (facultatif) ----------
+# ----- TTS (optionnel : edge-tts) -----
 try:
     import edge_tts
 except Exception:
@@ -27,8 +26,12 @@ MODES = {
     "verbe":       {"voice": "fr-FR-RemyMultilingualNeural",     "mem": MEMORY_DIR / "memoire_verbe.json"},
 }
 
+# ---------- util ----------
 def nettoyer(txt: str) -> str:
-    return re.sub(r"\s+", " ", (txt or "").replace("\n", " ")).strip()
+    if not txt: return ""
+    txt = txt.replace("\u200b","")  # zero-width
+    txt = txt.replace("\ufeff","")  # BOM
+    return re.sub(r"\s+", " ", txt.replace("\n", " ")).strip()
 
 def load_json(p: Path, default):
     try:
@@ -41,7 +44,7 @@ def load_json(p: Path, default):
 def save_json(p: Path, data):
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-# ---------- Normalisation FR ----------
+# ---------- normalisation FR ----------
 def _norm(s: str) -> str:
     s = (s or "").lower()
     s = unicodedata.normalize("NFD", s)
@@ -60,6 +63,16 @@ au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mai
 # ---------- Index dataset (BM25 simple) ----------
 FRAGMENTS, DF, N_DOCS = [], Counter(), 0
 
+def _read_text_any(p: Path) -> str:
+    # lit en utf-8, sinon latin-1 (évite charabia)
+    try:
+        return p.read_text(encoding="utf-8")
+    except Exception:
+        try:
+            return p.read_text(encoding="latin-1")
+        except Exception:
+            return ""
+
 def _split_paragraphs(txt: str, file_name: str):
     if not txt: return []
     parts = [p.strip() for p in re.split(r"\n\s*\n|(?:[.!?…]\s+)", txt) if p.strip()]
@@ -77,7 +90,7 @@ def _split_paragraphs(txt: str, file_name: str):
     for ch in out:
         words = ch.split()
         clean.append(" ".join(words[:200]) if len(words) > 200 else " ".join(words))
-    return [{"file": file_name, "text": c} for c in clean if len(c.split()) >= 60]
+    return [{"file": file_name, "text": c} for c in clean if len(c.split()) >= 40]
 
 def build_index():
     global FRAGMENTS, DF, N_DOCS
@@ -86,10 +99,8 @@ def build_index():
         print("[INDEX] dataset/ introuvable.")
         return
     for p in sorted(DATASET_DIR.glob("*.txt")):
-        try:
-            raw = p.read_text(encoding="utf-8")
-        except Exception:
-            continue
+        raw = _read_text_any(p)
+        if not raw: continue
         for frag in _split_paragraphs(raw, p.name):
             toks = _tokenize(frag["text"])
             if not toks: continue
@@ -104,8 +115,7 @@ def _bm25_scores(query_tokens, k1=1.5, b=0.75):
     if not FRAGMENTS: return []
     avgdl = sum(len(d["tokens"]) for d in FRAGMENTS)/len(FRAGMENTS)
     scores = defaultdict(float)
-    q_tf = Counter(query_tokens)
-    for q, _ in q_tf.items():
+    for q in query_tokens:
         df = DF.get(q, 0)
         if df == 0: continue
         idf = math.log(1 + (N_DOCS - df + 0.5)/(df + 0.5))
@@ -116,7 +126,7 @@ def _bm25_scores(query_tokens, k1=1.5, b=0.75):
             scores[d["id"]] += idf * ((tf*(k1+1))/denom)
     return sorted(scores.items(), key=lambda x:x[1], reverse=True)
 
-def retrieve_fragments(q: str, k: int = 4, min_score: float = 1.05):
+def retrieve_fragments(q: str, k: int = 4, min_score: float = 1.02):
     q_tokens = [t for t in _tokenize(q) if t not in STOPWORDS_FR]
     if not q_tokens or not FRAGMENTS: return []
     ranked = _bm25_scores(q_tokens)
@@ -130,11 +140,11 @@ def retrieve_fragments(q: str, k: int = 4, min_score: float = 1.05):
 
 build_index()
 
-# ---------- RAG uniquement (sans modèle) ----------
+# ---------- RAG FR only ----------
 def rag_answer_only(user_input: str, k: int = 4):
-    src = retrieve_fragments(user_input, k=k, min_score=1.05)
+    src = retrieve_fragments(user_input, k=k, min_score=1.02)
     if not src:
-        return ("Je n'ai rien trouvé de net dans les écrits. Donne-moi un indice ou un mot-clé précis, et je chercherai mieux.", [])
+        return ("Je n'ai rien trouvé de net dans les écrits. Donne-moi un indice précis et je fouille à nouveau.", [])
     lignes, sources = [], []
     for s in src:
         extrait = " ".join(nettoyer(s["text"]).split()[:80])
@@ -165,13 +175,12 @@ def build_ssml(text: str, mode_key: str, voice: str) -> str:
 """.strip()
 
 async def synthese_tts(text: str, out_file: Path, mode_key: str, voice: str):
-    if edge_tts is None:  # pas de TTS disponible, on sort
+    if edge_tts is None:  # pas de TTS dispo
         return
-    ssml = build_ssml(text, mode_key, voice)
-    comm = edge_tts.Communicate(ssml, voice)
+    comm = edge_tts.Communicate(build_ssml(text, mode_key, voice), voice)
     await comm.save(str(out_file))
 
-# ---------- Routes ----------
+# ---------- routes ----------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -183,17 +192,16 @@ def invoquer():
     if mode_key not in MODES: mode_key = "sentinelle8"
     prompt = data.get("prompt") or ""
 
-    # RAG dataset only
     reponse, sources = rag_answer_only(prompt, k=4)
 
-    # mémoire (éphemeral sur Render Free)
+    # mémoire (éphémère sur Render Free)
     mem_path = MODES[mode_key]["mem"]
     mem = load_json(mem_path, {"fragments": []})
     mem["fragments"].append({"date": datetime.now().isoformat(), "mode": mode_key, "prompt": prompt, "reponse": reponse, "sources": sources})
     mem["fragments"] = mem["fragments"][-200:]
     save_json(mem_path, mem)
 
-    # TTS
+    # TTS FR
     audio_url = None
     out_file = AUDIO_DIR / "derniere_voix.mp3"
     voice = MODES[mode_key]["voice"]
@@ -206,11 +214,6 @@ def invoquer():
 
     return jsonify({"reponse": reponse, "audio_url": audio_url, "sources": sources})
 
-@app.route("/activer-ankaa")
-def activer():
-    return ("", 204)
-
-# PWA SW à la racine
 @app.route("/service-worker.js")
 def sw():
     return app.send_static_file("service-worker.js")

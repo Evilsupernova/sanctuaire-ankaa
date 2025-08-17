@@ -1,14 +1,16 @@
-// Sanctuaire Ankaa — Front mobile=web (musique, sons, RAG, papyrus)
+// Sanctuaire Ankaa — Front mobile=web (sons, TTS FR, RAG, responsive fiable)
 document.addEventListener('DOMContentLoaded', () => {
-  // --- Hauteur viewport fiable iOS (corrige 100vh / clavier) ---
-function setVh() {
-  const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-  document.documentElement.style.setProperty('--vh', `${vh / 100}px`);
-}
-setVh();
-window.addEventListener('resize', setVh);
-window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
-  // Purge mode au chargement (CDC 2.5)
+
+  // ---- Hauteur viewport fiable iOS (corrige 100vh / clavier) ----
+  function setVh() {
+    const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    document.documentElement.style.setProperty('--vh', `${vh / 100}px`);
+  }
+  setVh();
+  window.addEventListener('resize', setVh);
+  window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
+
+  // Purge mode à chaque reload (CDC)
   try { localStorage.removeItem('mode'); } catch(_) {}
 
   // Refs
@@ -24,14 +26,19 @@ window.visualViewport && window.visualViewport.addEventListener('resize', setVh)
   const sOpen   = document.getElementById('s-open');
   const sClose  = document.getElementById('s-close');
   const sMode   = document.getElementById('s-mode');
+  const eye     = document.querySelector('.oeil-centre');
+  const aura    = document.getElementById('aura-ankaa');
+  const pap     = document.getElementById('papyrus-zone');
+  const ptxt    = document.getElementById('papyrus-texte');
+  const pts     = document.getElementById('points-sacrés');
 
   // Etat init
   if (zone) zone.style.display = 'none';
   [btnGo, input].forEach(el => el && (el.disabled = true));
   if (btnMini) { btnMini.disabled = true; btnMini.style.visibility = 'hidden'; }
 
-  // Sons — safePlay helper
-  function safePlay(a){ if(!a) return; a.currentTime = 0; const p = a.play(); if (p && p.catch) p.catch(()=>{}); }
+  // Safe audio play (iOS)
+  function safePlay(a){ if(!a) return; a.currentTime = 0; const p=a.play(); if(p && p.catch) p.catch(()=>{}); }
   if (bgm) {
     bgm.volume = 0.25;
     ['click','touchstart'].forEach(evt => {
@@ -46,7 +53,7 @@ window.visualViewport && window.visualViewport.addEventListener('resize', setVh)
     open({blockInput}={blockInput:false}){
       overlayEl?.classList.remove('overlay-hidden');
       overlayEl?.setAttribute('aria-hidden','false');
-      if(blockInput){ if(btnGo) btnGo.disabled=true; if(input) input.disabled=true; }
+      if(blockInput){ btnGo && (btnGo.disabled = true); input && (input.disabled = true); }
       safePlay(sOpen);
     },
     close(){
@@ -74,8 +81,8 @@ window.visualViewport && window.visualViewport.addEventListener('resize', setVh)
   // Sélection de mode
   function setMode(key){
     try { localStorage.setItem('mode', key); } catch(_){}
-    if (btnGo) btnGo.disabled = false;
-    if (input) input.disabled = false;
+    btnGo && (btnGo.disabled = false);
+    input && (input.disabled = false);
     overlay.close(); safePlay(sMode);
   }
   document.querySelectorAll('#mode-overlay .mode-option').forEach(b=>{
@@ -87,12 +94,6 @@ window.visualViewport && window.visualViewport.addEventListener('resize', setVh)
   });
 
   // Effets visuels (œil/aura/papyrus)
-  const eye  = document.querySelector('.oeil-centre');
-  const aura = document.getElementById('aura-ankaa');
-  const pap  = document.getElementById('papyrus-zone');
-  const ptxt = document.getElementById('papyrus-texte');
-  const pts  = document.getElementById('points-sacrés');
-
   function waiting(on){ if(!pts) return; pts.style.display = on ? 'block' : 'none'; }
   function playVisu(durationMs){
     if (eye) eye.classList.add('playing');

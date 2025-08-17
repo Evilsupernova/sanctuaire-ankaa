@@ -5,25 +5,25 @@
   <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
 
   <!-- PWA -->
-  <link rel="manifest" href="/static/manifest.json">
+  <link rel="manifest" href="/static/manifest.json?v=8">
   <meta name="theme-color" content="#0b0b10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 
-  <link rel="stylesheet" href="/static/style.css?v=7">
-<script defer src="/static/script.js?v=7"></script>
-<link rel="manifest" href="/static/manifest.json?v=7">
+  <link rel="icon" href="/static/assets/favicon.ico" />
+  <link rel="stylesheet" href="/static/style.css?v=8" />
+  <script defer src="/static/script.js?v=8"></script>
 </head>
 <body>
   <!-- Fond -->
   <div class="fond-cosmique"></div>
 
   <!-- Audio (musique + TTS + sons UI) -->
-  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=7" ...></audio>
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=8" preload="auto" loop></audio>
   <audio id="tts-player" preload="auto" style="display:none;"></audio>
-  <audio id="s-click"  src="/static/assets/ui_click.mp3"   preload="auto"></audio>
+  <audio id="s-click"  src="/static/assets/ui_click.mp3" preload="auto"></audio>
   <audio id="s-open"   src="/static/assets/portal_open.mp3" preload="auto"></audio>
   <audio id="s-close"  src="/static/assets/portal_close.mp3" preload="auto"></audio>
   <audio id="s-mode"   src="/static/assets/mode_select.mp3" preload="auto"></audio>
@@ -81,7 +81,7 @@
   <!-- SW -->
   <script>
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js"));
+      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=8"));
     }
   </script>
 </body>
