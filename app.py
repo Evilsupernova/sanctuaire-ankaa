@@ -163,9 +163,9 @@ def strip_tts(txt):
     for p in BAD: t=re.sub(p, " ", t)
     return re.sub(r"\s+"," ", t).strip(" .")
 
-# ---------- TTS edge-tts ----------
-async def _tts_async(text, voice, rate, pitch, out_path: Path):
-    if edge_tts is None: return "disabled"
+# Fallback edge-tts (grand public, peut 403 en datacenter)
+async def _edge_async(text, voice, rate, pitch, out_path):
+    import edge_tts
     kwargs = {"voice": voice}
     if rate:  kwargs["rate"]  = rate
     if pitch and pitch != "default": kwargs["pitch"] = pitch
@@ -173,32 +173,63 @@ async def _tts_async(text, voice, rate, pitch, out_path: Path):
     await comm.save(str(out_path))
     return "ok"
 
-def do_tts(text, mode, is_souffle, out_file: Path):
-    if edge_tts is None:
-        print("[TTS] edge-tts indisponible -> audio désactivé")
-        return "disabled"
+def _tts_edge(text, voice, rate, pitch, out_file):
     try:
-        if is_souffle:
-            voice = VOIX_HOMME.get(mode, "fr-FR-RemyMultilingualNeural")
-            rate, pitch = "-2%", "default"
-        else:
-            voice = VOIX_FEMME.get(mode, "fr-FR-DeniseNeural")
-            rate, pitch = "+2%", "default"
-
-        clean = strip_tts(text) or "Silence sacré."
         if out_file.exists():
             try: out_file.unlink()
             except: pass
         loop=asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(asyncio.wait_for(_tts_async(clean, voice, rate, pitch, out_file), timeout=20))
+        loop.run_until_complete(asyncio.wait_for(_edge_async(text, voice, rate, pitch, out_file), timeout=25))
         loop.close()
         return "ok" if (out_file.exists() and out_file.stat().st_size>800) else "error"
     except Exception as e:
         try: loop.close()
         except: pass
-        print("[TTS error]", e)
+        print("[edge-tts error]", e)
         return "error"
+
+def _tts_azure(text, voice, out_file):
+    try:
+        import azure.cognitiveservices.speech as speechsdk
+        key = os.getenv("AZURE_SPEECH_KEY")
+        region = os.getenv("AZURE_SPEECH_REGION")
+        if not key or not region:
+            return "disabled"
+        speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
+        speech_config.speech_synthesis_voice_name = voice
+        # MP3 24kHz 48kbps mono
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
+        )
+        audio_config = speechsdk.audio.AudioOutputConfig(filename=str(out_file))
+        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+        result = synthesizer.speak_text_async(text).get()
+        ok = (result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted)
+        return "ok" if (ok and out_file.exists() and out_file.stat().st_size>800) else "error"
+    except Exception as e:
+        print("[azure-tts error]", e)
+        return "error"
+
+def do_tts(text, mode, is_souffle, out_file):
+    # Choix de la voix
+    if is_souffle:
+        voice = VOIX_HOMME.get(mode, "fr-FR-RemyMultilingualNeural"); rate, pitch = "-2%", "default"
+    else:
+        voice = VOIX_FEMME.get(mode, "fr-FR-DeniseNeural");          rate, pitch = "+2%", "default"
+
+    clean = strip_tts(text) or "Silence sacré."
+
+    # 1) Préférence: Azure (fiable en prod)
+    if os.getenv("AZURE_SPEECH_KEY") and os.getenv("AZURE_SPEECH_REGION"):
+        st = _tts_azure(clean, voice, out_file)
+        if st == "ok":
+            return "ok"
+        # si Azure échoue, on tente edge-tts en secours
+        print("[tts] Azure KO, tentative edge-tts fallback…")
+
+    # 2) Fallback: edge-tts (peut 403 en datacenter)
+    return _tts_edge(clean, voice, rate, pitch, out_file)
 
 # ---------- Routes ----------
 @app.route("/")
