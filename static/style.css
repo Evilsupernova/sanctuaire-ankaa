@@ -1,99 +1,238 @@
-:root{ --gold:#FFE08A; }
-html,body{margin:0;height:100%;}
+/* =========================================================
+   Sanctuaire Ankaa — Style mobile complet (V10 stable)
+   - Mobile-first (iPhone 13 Pro Max & autres)
+   - Respecte les IDs existants, ne casse pas le JS
+   ========================================================= */
+
+/* ---------- Variables & reset ---------- */
+:root{
+  --gold: #FFE08A;
+  --gold-2:#FFD35A;
+  --ink:  #0a0a0a;
+  --veil: rgba(10,10,14,.68);
+  --card: rgba(16,16,20,.82);
+  --ring: 0 0 0 1px rgba(255,224,138,.22), 0 10px 28px rgba(0,0,0,.55);
+  --ring-strong: 0 0 0 1px rgba(255,224,138,.28), 0 14px 36px rgba(0,0,0,.65);
+  --radius: 18px;
+  --vh: 1vh; /* peut être corrigé par JS si tu veux */
+}
+*{ box-sizing:border-box; -webkit-tap-highlight-color:transparent; }
+html,body{ margin:0; padding:0; height:100%; overflow:hidden; }
+
+/* ---------- Fond ---------- */
 body{
-  color:var(--gold);
+  color: var(--gold);
   background:
-    radial-gradient(1200px 700px at 50% -20%, rgba(255,224,138,.18), transparent 60%),
-    #000 url("/static/assets/fond_cosmique.jpg") center top/cover no-repeat fixed;
-  font-family: ui-serif, Georgia, serif;
-  overflow:hidden;
+    radial-gradient(1200px 680px at 50% -20%, rgba(255,224,138,.16), transparent 62%),
+    #000 url("/static/assets/fond_cosmique.jpg") center top / cover no-repeat fixed;
+  font-family: ui-serif, Georgia, "Times New Roman", serif;
 }
 
-/* En-tête */
+/* ---------- En-tête ---------- */
 #en-tete{
   position:relative; z-index:5;
-  padding:calc(8px + env(safe-area-inset-top)) 14px 4px;
+  padding: calc(8px + env(safe-area-inset-top)) 14px 4px;
   text-align:center;
-  background:linear-gradient(to bottom,rgba(0,0,0,.45),transparent 70%);
+  background: linear-gradient(to bottom, rgba(0,0,0,.45), transparent 70%);
 }
 .titre-sacre{
-  margin:0 auto 4px; font-weight:800; letter-spacing:.1em; text-transform:uppercase;
-  text-shadow:0 0 10px #000,0 0 36px rgba(255,224,138,.55);
-  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:min(92vw,720px);
-  font-size:clamp(18px,4.6vw,30px);
+  margin:0 auto 4px;
+  font-weight:800; letter-spacing:.10em; text-transform:uppercase;
+  text-shadow: 0 0 10px #000, 0 0 36px rgba(255,224,138,.55);
+  white-space: nowrap;                 /* ← UNE seule ligne */
+  overflow: hidden; text-overflow: ellipsis;
+  max-width: min(92vw, 720px);
+  font-size: clamp(18px, 4.6vw, 30px);
 }
-.sous-titre{margin:2px auto 6px;max-width:min(88vw,680px);font-style:italic;opacity:.85;font-size:clamp(12px,3.4vw,16px);}
+.sous-titre{
+  margin: 2px auto 6px;
+  max-width: min(88vw, 680px);
+  font-style: italic;
+  opacity:.9;
+  font-size: clamp(12px, 3.6vw, 16px);
+}
 
-/* Bouton Sanctuaire (haut-droite sous titre) */
+/* Bouton Sanctuaire (en haut-droite sous le titre) */
 #bouton-sanctuaire{
-  position:fixed; right:12px; top:calc(64px + env(safe-area-inset-top));
-  width:46px; height:46px; border-radius:50%; display:grid; place-items:center;
-  background:rgba(26,22,10,.65); color:var(--gold);
-  box-shadow:0 0 0 1px rgba(255,224,138,.2),0 8px 20px rgba(0,0,0,.45); z-index:60;
+  position: fixed;
+  right: 12px;
+  top:  calc(64px + env(safe-area-inset-top));  /* recalcé par JS si besoin */
+  width: 46px; height: 46px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(26,22,10,.68);
+  color: var(--gold);
+  box-shadow: var(--ring);
+  z-index: 60;
+  transition: transform .16s ease, background .16s ease, box-shadow .16s ease;
 }
-#bouton-sanctuaire:active{ transform:scale(.96) }
+#bouton-sanctuaire:hover{ background: rgba(34,28,12,.8); box-shadow: var(--ring-strong); }
+#bouton-sanctuaire:active{ transform: scale(.96); }
 
-/* Œil & aura (si fournis) */
+/* ---------- Œil d’Horus & aura ---------- */
 .oeil-centre{
-  position:absolute; left:50%; transform:translateX(-50%);
-  top:clamp(84px,11vw,130px);
-  width:clamp(160px,56vw,420px); height:clamp(88px,18vw,140px);
-  background:url("/static/assets/oeil_orus_ailes.png") center/contain no-repeat;
-  filter:drop-shadow(0 6px 18px rgba(255,224,138,.2)); pointer-events:none; z-index:4;
+  position: absolute; left: 50%; transform: translateX(-50%);
+  top: clamp(84px, 11vw, 128px);
+  width:  clamp(160px, 52vw, 400px);
+  height: clamp(88px,  18vw, 140px);
+  background: url("/static/assets/oeil_orus_ailes.png") center/contain no-repeat;
+  filter: drop-shadow(0 6px 18px rgba(255,224,138,.22));
+  pointer-events: none;
+  z-index: 4;
 }
-#aura-ankaa{position:absolute; inset:0; pointer-events:none; z-index:3; opacity:0; transition:opacity .35s ease;}
-#aura-ankaa.active{opacity:1}
+#aura-ankaa{
+  position: absolute; inset: 0;
+  pointer-events: none; z-index: 3;
+  background:
+    radial-gradient(640px 340px at 50% 12%, rgba(255,224,138,.08), transparent 70%),
+    radial-gradient(820px 600px at 50% 22%, rgba(255,224,138,.06), transparent 78%);
+  opacity: 0; transition: opacity .35s ease;
+}
+#aura-ankaa.active{ opacity:1; animation: pulse-aura 2.6s ease-in-out infinite; }
+@keyframes pulse-aura{
+  0%,100%{ filter: saturate(1) brightness(1); }
+  50%{    filter: saturate(1.12) brightness(1.10); }
+}
 
-/* Pile de boutons gauche */
-.stack-gauche{ position:fixed; left:10px; top:calc(120px + env(safe-area-inset-top)); display:grid; gap:14px; z-index:50; }
-.stack-gauche .rond{ width:52px; height:52px; border-radius:50%; display:grid; place-items:center; background:rgba(20,18,12,.64); border:1px solid rgba(255,224,138,.22); color:var(--gold); }
-.stack-gauche .rond.active{ background:rgba(255,224,138,.9); color:#1c1506; }
+/* ---------- Pile de boutons latéraux ---------- */
+.stack-gauche{
+  position: fixed;
+  left: 10px;
+  top: calc(120px + env(safe-area-inset-top));
+  display: grid; gap: 14px;
+  z-index: 50;
+}
+.stack-gauche .rond,
+#btn-mode-mini, #btn-veille-mini, #btn-vocal{
+  width: 52px; height: 52px; border-radius: 50%;
+  display: grid; place-items: center;
+  background: rgba(20,18,12,.64);
+  color: var(--gold);
+  border: 1px solid rgba(255,224,138,.22);
+  box-shadow: var(--ring);
+  font-size: 20px;
+}
+#btn-veille-mini.active, #btn-vocal.active{
+  background: rgba(255,224,138,.92);
+  color:#1c1506;
+}
 
-/* Papyrus */
+/* ---------- Papyrus (centre / bas) ---------- */
 #papyrus-zone{
-  position:fixed; left:12px; right:12px; bottom:calc(82px + env(safe-area-inset-bottom));
-  display:none; padding:18px 16px; border-radius:18px;
-  color:#F6F1D0; background:linear-gradient(180deg,rgba(10,10,14,.78),rgba(8,8,12,.84));
-  border:1px solid rgba(255,224,138,.26); box-shadow:0 10px 30px rgba(0,0,0,.6); z-index:54;
+  position: fixed;
+  left: 12px; right: 12px;
+  bottom: calc(82px + env(safe-area-inset-bottom));
+  display: none;                       /* affiché par JS */
+  padding: 18px 16px;
+  background: linear-gradient(180deg, rgba(10,10,14,.78), rgba(8,8,12,.84));
+  border: 1px solid rgba(255,224,138,.26);
+  border-radius: var(--radius);
+  box-shadow: var(--ring-strong);
+  color: #F6F1D0;
+  -webkit-backdrop-filter: blur(10px);
+  backdrop-filter: blur(10px);
+  z-index: 54;
 }
-#papyrus-texte{ margin:0; line-height:1.48; font-size:clamp(14px,3.8vw,17px); text-shadow:0 1px 0 rgba(0,0,0,.35); }
+#papyrus-texte{
+  margin:0; line-height: 1.48;
+  font-size: clamp(14px, 3.8vw, 17px);
+  text-shadow: 0 1px 0 rgba(0,0,0,.35);
+  white-space: pre-wrap;
+}
 
-/* Barre d’invocation */
+/* ---------- Barre d’invocation (bas d’écran) ---------- */
 #zone-invocation{
-  position:fixed; left:0; right:0; bottom:calc(6px + env(safe-area-inset-bottom));
-  padding:0 12px; display:grid; grid-template-columns:1fr 54px; gap:10px; z-index:55;
+  position: fixed;
+  left: 0; right: 0;
+  bottom: calc(6px + env(safe-area-inset-bottom));
+  padding: 0 12px;
+  display: grid;
+  grid-template-columns: 1fr 54px;
+  gap: 10px;
+  z-index: 55;
 }
-#verbe{
-  height:52px; border-radius:14px; padding:0 16px; color:#e7e7e7;
-  background:linear-gradient(180deg,rgba(12,12,16,.75),rgba(8,8,12,.78));
-  border:1px solid rgba(255,224,138,.20);
-  box-shadow:0 0 0 1px rgba(255,224,138,.2),0 8px 20px rgba(0,0,0,.45);
-}
-#btn-verbe{
-  height:52px; border-radius:14px; background:linear-gradient(180deg,#FFE08A,#E6C35A); color:#201602; font-weight:700;
-  box-shadow:0 10px 24px rgba(255,224,138,.22);
-}
-#btn-verbe.active{ filter:saturate(1.1) brightness(1.05); }
 
-/* Overlay de mode — caché par défaut, cliquable */
-#mode-overlay{
-  position:fixed; inset:0; z-index:70;
-  display:grid; place-items:center;
-  background:rgba(0,0,0,.85);
+#verbe{
+  height: 52px; width: 100%;
+  padding: 0 16px;
+  border-radius: 14px;
+  color: #e7e7e7;
+  background: linear-gradient(180deg, rgba(12,12,16,.75), rgba(8,8,12,.78));
+  border: 1px solid rgba(255,224,138,.20);
+  outline: none;
+  box-shadow: var(--ring);
 }
-.overlay-hidden{ display:none; }   /* ← IMPORTANT : plus d’écran bloqué ! */
+#verbe::placeholder{ color:#d9cfb0; opacity:.9; }
+
+#btn-verbe{
+  height: 52px; border-radius: 14px;
+  background: linear-gradient(180deg, var(--gold), var(--gold-2));
+  color: #201602; font-weight: 800;
+  box-shadow: 0 10px 24px rgba(255,224,138,.22);
+  transition: transform .12s ease, filter .12s ease;
+}
+#btn-verbe:active{ transform: translateY(1px) scale(.99); }
+#btn-verbe.active{ filter: saturate(1.08) brightness(1.05); }
+
+/* ---------- Overlay de sélection de mode ---------- */
+#mode-overlay{
+  position: fixed; inset: 0; z-index: 70;
+  display: grid; place-items: center;
+  background:
+    radial-gradient(820px 520px at 50% 16%, rgba(18,16,8,.86), rgba(6,6,10,.94) 60%),
+    linear-gradient(180deg, rgba(0,0,0,.72), rgba(0,0,0,.92));
+}
+.overlay-hidden{ display: none !important; }   /* ← caché par défaut, ne bloque pas */
 
 .overlay-card{
-  width:min(92vw,620px); padding:18px; border-radius:20px;
-  border:1px solid rgba(255,224,138,.25);
-  background:linear-gradient(180deg,rgba(12,12,16,.75),rgba(10,10,14,.88));
-  box-shadow:0 0 0 1px rgba(255,224,138,.2),0 10px 30px rgba(0,0,0,.6);
+  width: min(92vw, 640px);
+  padding: 18px;
+  border-radius: 20px;
+  border: 1px solid rgba(255,224,138,.25);
+  background: linear-gradient(180deg, rgba(12,12,16,.78), rgba(10,10,14,.88));
+  box-shadow: var(--ring-strong);
 }
-.mode-grid{ margin-top:10px; display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+.overlay-card h3{
+  margin: 0 0 8px; font-size: clamp(16px, 4.4vw, 20px);
+  letter-spacing:.08em; text-transform: uppercase;
+  text-align:center;
+}
+.mode-grid{
+  margin-top: 10px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
 .mode-option{
-  padding:14px 10px; min-height:64px; border-radius:14px;
-  border:1px solid rgba(255,224,138,.22); background:rgba(18,16,8,.62); color:var(--gold); font-weight:700;
+  display: grid; place-items: center;
+  padding: 14px 10px; min-height: 64px;
+  border-radius: 14px;
+  border: 1px solid rgba(255,224,138,.22);
+  background: rgba(18,16,8,.62);
+  color: var(--gold);
+  letter-spacing: .06em; font-weight: 700;
+  box-shadow: var(--ring);
+  transition: transform .12s ease, background .12s ease, box-shadow .12s ease;
+}
+.mode-option:hover{ transform: translateY(-2px); box-shadow: var(--ring-strong); background: rgba(26,22,10,.74); }
+.mode-option:active{ transform: translateY(0); }
+
+/* ---------- Audio éléments cachés ---------- */
+audio{ display:none; }
+
+/* ---------- Responsiveness ---------- */
+@media (min-width: 420px){
+  #verbe{ height: 56px; }
+  #btn-verbe{ height: 56px; }
+  #papyrus-texte{ font-size: 16px; }
+}
+@media (orientation: landscape){
+  .oeil-centre{
+    top: clamp(54px, 6vw, 84px);
+    width: clamp(200px, 36vw, 460px);
+    height: clamp(90px,  14vw, 150px);
+  }
+  .stack-gauche{ top: calc(86px + env(safe-area-inset-top)); }
 }
 
-/* Audio caché */
-audio{ display:none; }
+/* ---------- Utilitaires ---------- */
+.hidden{ display:none !important; }
