@@ -4,38 +4,33 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>𓂀 Sanctuaire Ankaa</title>
-  <link rel="stylesheet" href="/static/style.css?v=10.2" />
+  <link rel="stylesheet" href="/static/style.css?v=10.0" />
 </head>
 <body>
 
   <header id="en-tete">
     <h1 class="titre-sacre">𓂀 LE CERCLE DES VEILLEURS 𓂀</h1>
-    <p class="sous-titre">« Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »</p>
+    <p class="sous-titre">« Laisse le Verbe illuminer ton chemin. »</p>
     <button id="bouton-sanctuaire" aria-label="Ouvrir le sanctuaire">☥</button>
   </header>
 
   <div id="aura-ankaa"></div>
   <div class="oeil-centre" aria-hidden="true"></div>
 
-  <!-- pile gauche : mode / souffle / vocal -->
   <div class="stack-gauche">
     <button id="btn-mode-mini" class="rond" title="Choisir le mode">𓁹</button>
     <button id="btn-veille-mini" class="rond" title="Souffle sacré">🌬️</button>
     <button id="btn-vocal" class="rond" title="Mode vocal">🎤</button>
   </div>
 
-  <!-- papyrus -->
-  <div id="papyrus-zone">
-    <p id="papyrus-texte"></p>
-  </div>
+  <div id="papyrus-zone"><p id="papyrus-texte"></p></div>
 
-  <!-- barre d’invocation -->
   <section id="zone-invocation">
-    <input id="verbe" type="text" inputmode="text" autocomplete="off" placeholder="* Invoque ton Verbe sacré..." />
+    <input id="verbe" type="text" placeholder="* Invoque ton Verbe sacré..." />
     <button id="btn-verbe" aria-label="Invoquer">𓂀</button>
   </section>
 
-  <!-- overlay de mode -->
+  <!-- Overlay caché par défaut -->
   <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
     <div class="overlay-card">
       <h3>Choisis ton mode</h3>
@@ -48,10 +43,9 @@
     </div>
   </div>
 
-  <!-- audio -->
   <audio id="tts-player" preload="none"></audio>
   <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3" preload="metadata" loop></audio>
 
-  <script src="/static/script.js?v=10.2"></script>
+  <script src="/static/script.js?v=10.0"></script>
 </body>
 </html>

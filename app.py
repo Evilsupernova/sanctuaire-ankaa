@@ -1,11 +1,11 @@
-# app.py — FIX VOIX (compatible toutes versions edge-tts)
+# app.py — Sanctuaire Ankaa V10 (TTS sans SSML, compatible Render)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
 from flask import Flask, render_template, request, jsonify
 
-# --- TTS Edge ---
+# --- edge-tts (sans SSML) ---
 try:
     import edge_tts
 except Exception:
@@ -13,7 +13,7 @@ except Exception:
 
 app = Flask(__name__, static_url_path="/static")
 
-BASE = Path(__file__).parent.resolve()
+BASE    = Path(__file__).parent.resolve()
 DATASET = BASE / "dataset"
 MEMORY  = BASE / "memory"
 AUDIO   = BASE / "static" / "assets"
@@ -35,7 +35,7 @@ VOIX_HOMME = {
 }
 MODES = {m: {"mem": MEMORY / f"memoire_{m}.json"} for m in VOIX_FEMME}
 
-# --------- Utils ---------
+# --------- Utils ----------
 def _clean(s): 
     return re.sub(r"\s+"," ", (s or "").replace("\n"," ")).strip()
 
@@ -54,7 +54,7 @@ def jload(p, d):
     except: return d
 def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2), encoding="utf-8")
 
-# --------- Dataset BM25 (pour SOUFFLE uniquement) ---------
+# --------- Dataset BM25 (pour SOUFFLE uniquement) ----------
 FRAGS, DF, N = [], Counter(), 0
 def _read_any(p):
     for enc in ("utf-8","latin-1"):
@@ -94,7 +94,7 @@ def retrieve(q, k=3):
     if not qt or not FRAGS: return []
     return [FRAGS[i]["text"] for i,_ in _bm25(qt)[:k]]
 
-# --------- Génération de réponse ---------
+# --------- Réponses ----------
 def is_greet(s): 
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 
@@ -118,46 +118,22 @@ def souffle_answer() -> str:
     fin=random.choice(["— Respire, je suis là.","— Laisse la lumière t’habiter.","— Doucement, tout va bien."])
     return f"{body}\n\n{fin}"
 
-# --------- SSML helper (mais SANS pitch/rate dangereux) ---------
-def make_ssml(text: str) -> str:
-    s=_clean(text).replace("..","…")
-    return f"""<speak version="1.0" xml:lang="fr-FR" xmlns:mstts="https://www.w3.org/2001/mstts">
-  <mstts:express-as style="narration-relaxed" styledegree="1.0">
-    <prosody>
-      <break time="220ms"/>{s}<break time="240ms"/>
-    </prosody>
-  </mstts:express-as>
-</speak>""".strip()
-
-# --------- TTS edge-tts avec bascule auto SSML -> plain text ---------
-async def _tts_with_args(text_or_ssml: str, voice: str, use_ssml: bool, out: Path):
-    if use_ssml:
-        comm = edge_tts.Communicate(text_or_ssml, voice=voice, ssml=True)
-    else:
-        comm = edge_tts.Communicate(text_or_ssml, voice=voice)  # texte simple
+# --------- TTS (edge-tts SANS SSML, SANS pitch/rate) ----------
+async def _tts_plain(text: str, voice: str, out: Path):
+    # Appel minimal compatible — PAS de param ssml
+    comm = edge_tts.Communicate(_clean(text), voice=voice)
     await comm.save(str(out))
 
 def tts_generate(text: str, voice: str, out: Path) -> str:
-    """Tente SSML, sinon retombe en texte simple. Pas de pitch, pas de rate."""
-    if edge_tts is None: 
-        print("[TTS] edge_tts non installé"); 
+    if edge_tts is None:
+        print("[TTS] edge_tts non installé")
         return "disabled"
     try:
         if out.exists():
             try: out.unlink()
             except: pass
-
         loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-
-        # 1) tentative SSML (peut échouer si version edge-tts < 6.1.x)
-        try:
-            ssml = make_ssml(text)
-            loop.run_until_complete(_tts_with_args(ssml, voice, True, out))
-        except TypeError as e:
-            # version qui ne connaît pas le paramètre 'ssml' -> fallback
-            print("[TTS] Fallback sans ssml (TypeError):", e)
-            loop.run_until_complete(_tts_with_args(_clean(text), voice, False, out))
-
+        loop.run_until_complete(asyncio.wait_for(_tts_plain(text, voice, out), timeout=25))
         loop.close()
         ok = out.exists() and out.stat().st_size > 1000
         print("[TTS] status =", "ok" if ok else "error", "| voice:", voice, "| size:", out.stat().st_size if out.exists() else 0)
@@ -168,7 +144,7 @@ def tts_generate(text: str, voice: str, out: Path) -> str:
         print("[TTS error]", e)
         return "error"
 
-# --------- Routes ---------
+# --------- Routes ----------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -188,14 +164,14 @@ def invoquer():
     if is_greet(prompt):
         rep = "Salut, frère 🌙. Je t’écoute — qu’est-ce qu’on éclaire ?"
     elif is_souffle:
-        rep = souffle_answer()
+        rep = souffle_answer()               # SOUFFLE = dataset + voix d’homme
     else:
-        rep = dialogue_answer(prompt)  # INVOCATION = dialogue (pas RAG)
+        rep = dialogue_answer(prompt)        # INVOCATION = dialogue (pas de récitation)
 
-    # mémoire légère
+    # mémoire
     memp = MODES[mode]["mem"]
     mem = jload(memp, {"fragments":[]})
-    mem["fragments"].append({"date": datetime.now().isoformat(), "mode": mode, "souffle": is_souffle, "prompt": prompt, "reponse": rep})
+    mem["fragments"].append({"date":datetime.now().isoformat(),"mode":mode,"souffle":is_souffle,"prompt":prompt,"reponse":rep})
     mem["fragments"] = mem["fragments"][-200:]
     jsave(memp, mem)
 
