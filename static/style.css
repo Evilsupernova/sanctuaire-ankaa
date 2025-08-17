@@ -1,6 +1,6 @@
 *{ box-sizing:border-box; }
 html,body{ margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; font-family:'Cinzel Decorative','Georgia',serif; }
-:root{ --chat-h:64px; --tools-gap:14px; }
+:root{ --chat-h:64px; --tools-gap:16px; }
 
 .fond-cosmique{ position:fixed; inset:0; z-index:0; background:url('/static/assets/fond_cosmique.jpg') center/cover no-repeat; }
 
@@ -9,9 +9,7 @@ html,body{ margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; font
   text-align:center; color:#ffe066; font-weight:700; letter-spacing:.09em;
   text-shadow:0 0 10px #000, 0 0 32px #ffe066;
   margin: 4px 12px 6px;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
   font-size: clamp(18px, 4.8vw, 34px);
 }
 .phrase-sacrée{
@@ -21,24 +19,23 @@ html,body{ margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; font
   margin: 0 12px 8px;
 }
 
-/* Œil beaucoup plus grand */
-.oeil-centre{ position:relative; z-index:2; width:clamp(420px,78vw,680px); margin:32px auto 8px; }
+/* Œil très grand */
+.oeil-centre{ position:relative; z-index:2; width:clamp(460px,80vw,760px); margin:34px auto 0; }
 #oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; }
-#aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:96%; height:72%;
-  filter:blur(16px) brightness(1.05); background:radial-gradient(ellipse 60% 42% at 50% 50%, #ffe06666 15%, #ffe06622 60%, #0000 100%);
+#aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:100%; height:78%;
+  filter:blur(18px) brightness(1.05);
+  background:radial-gradient(ellipse 62% 44% at 50% 50%, #ffe06666 15%, #ffe06622 60%, #0000 100%);
   opacity:0; transition:opacity .25s ease; }
-#aura-ankaa.active{ opacity:.78; }
+#aura-ankaa.active{ opacity:.82; }
 @keyframes battement{ 0%,100%{transform:scale(1)} 50%{transform:scaleX(1.03) scaleY(0.98)} }
 .oeil-centre.playing #oeil-anim{ animation:battement 3s ease-in-out infinite; }
 
-/* Rangée d’outils centrée sous l’Œil */
+/* Rangée d’outils centrée sous l’œil */
 #tools-column{
-  position:relative;
-  z-index:10050;
-  margin:10px auto 6px;
+  position:relative; z-index:10050;
+  margin:14px auto 6px;
   display:flex; align-items:center; justify-content:center;
-  gap:var(--tools-gap);
-  width:min(92vw,760px);
+  gap:var(--tools-gap); width:min(92vw,780px);
 }
 .tool-btn{
   background:rgba(32,28,8,.62); color:#ffe066; border:1px solid rgba(255,224,102,.25);
@@ -47,12 +44,24 @@ html,body{ margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; font
 }
 .tool-btn:hover,.tool-btn:focus{ background:#ffe066; color:#2c2108; transform:translateY(-1px); border-color:rgba(255,224,102,.55); box-shadow:0 0 16px 4px #ffe06699; }
 
-/* Papyrus */
+/* Bouton Sanctuaire (☥) en bas-centre, disparaît après ouverture */
+#bouton-sanctuaire{
+  position:fixed; left:50%; transform:translateX(-50%);
+  bottom:calc(14px + env(safe-area-inset-bottom));
+  z-index:10060;
+  width:56px; height:56px; border-radius:40px;
+  background:rgba(32,28,8,.70); color:#ffe066; border:1px solid rgba(255,224,102,.35);
+  box-shadow:0 4px 16px rgba(0,0,0,.35), 0 0 10px rgba(255,224,102,.28);
+  font-size:1.25em;
+}
+#bouton-sanctuaire:hover{ background:#ffe066; color:#2c2108; }
+
+/* Papyrus (au centre bas) */
 .papyrus-cercle{
   position:fixed; left:50%; transform:translateX(-50%);
-  bottom:calc(var(--chat-h) + 28px + env(safe-area-inset-bottom));
+  bottom:calc(var(--chat-h) + 22px + env(safe-area-inset-bottom));
   max-width:min(92vw,880px); z-index:3000; padding:14px 16px;
-  background:rgba(0,0,0,.38); border:1.2px solid #e7cd7280; border-radius:18px 28px 18px 28px;
+  background:rgba(0,0,0,.40); border:1.2px solid #e7cd7280; border-radius:18px 28px 18px 28px;
   box-shadow:0 2px 16px #e7cd7296; color:#FFFFF0; backdrop-filter:blur(2.2px);
   display:flex; align-items:flex-end;
 }
@@ -72,6 +81,7 @@ html,body{ margin:0; padding:0; width:100vw; height:100vh; overflow:hidden; font
 #btn-verbe:hover,#btn-verbe:focus{ background:#fff5c0; color:#2c2108; box-shadow:0 0 6px 2px #ffe06677; }
 #btn-verbe.active{ background:#ffe066; color:#2c2108; transform:translateY(-1px); box-shadow:0 0 8px 2px #ffe06699, 0 0 1px 1px #222 inset; }
 
+/* Overlay mode */
 #mode-overlay{ position:fixed; inset:0; z-index:10000; display:grid; place-items:center; }
 .overlay-hidden{ display:none !important; }
 .overlay-backdrop{

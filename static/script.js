@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // Fix viewport mobile
+  // viewport mobile
   function setVh(){ const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     document.documentElement.style.setProperty('--vh', `${vh/100}px`); }
   setVh(); window.addEventListener('resize', setVh);
   window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
 
-  // iOS: déverrouille audio au premier toucher
+  // iOS: déverrouille audio au 1er toucher
   (function unlock(){
     const ids=['musique-sacree','tts-player','s-click','s-open','s-close','s-mode'];
     const list=ids.map(id=>document.getElementById(id));
@@ -19,7 +19,8 @@ document.addEventListener('DOMContentLoaded', () => {
   const input=document.getElementById('verbe');
   const btnGo=document.getElementById('btn-verbe');
   const zone=document.getElementById('zone-invocation');
-  const btnOpen=document.getElementById('bouton-sanctuaire');
+
+  const btnOpen=document.getElementById('bouton-sanctuaire');    // ☥ en bas-centre
   const btnMode=document.getElementById('btn-mode-mini');
   const btnVeil=document.getElementById('btn-veille-mini');
   const btnVocal=document.getElementById('btn-vocal');
@@ -37,30 +38,27 @@ document.addEventListener('DOMContentLoaded', () => {
   const ptxt=document.getElementById('papyrus-texte');
   const overlayEl=document.getElementById('mode-overlay');
 
-  // Déplacer la rangée d’outils SOUS l’Œil (sans toucher à index.html)
+  // Déplacer les autres boutons SOUS l’œil
   const tools=document.getElementById('tools-column');
   const eyeWrap=document.querySelector('.oeil-centre');
   if(tools && eyeWrap){ eyeWrap.insertAdjacentElement('afterend', tools); }
 
-  // volumes de base
-  if(bgm) bgm.volume=0.15;            // musique présente
-  if(tts) tts.volume=1.0;             // voix au max
+  // Volumes: musique très faible, voix forte + ducking total
+  if(bgm) bgm.volume=0.04;
+  if(tts) tts.volume=1.0;
   [sClick,sOpen,sClose,sMode].forEach(a=>{ if(a) a.volume=0.32; });
-
-  // Ducking: baisse la musique pendant la voix
   if(tts && bgm){
-    tts.addEventListener('play', ()=>{ try{ bgm.volume = 0.05; }catch{} });
-    const restore=()=>{ try{ bgm.volume = 0.15; }catch{} };
+    tts.addEventListener('play', ()=>{ try{ bgm.volume = 0.0; }catch{} }); // mute musique pendant la voix
+    const restore=()=>{ try{ bgm.volume = 0.04; }catch{} };
     tts.addEventListener('ended', restore);
     tts.addEventListener('pause', restore);
   }
 
-  // état initial : tout bloqué
+  // état initial
   try{ localStorage.removeItem('mode'); }catch(_){}
   if(zone) zone.style.display='none';
   [btnGo,input].forEach(el=> el && (el.disabled=true));
 
-  // état TTS (parle/ne parle pas)
   let talking=false;
   if(tts){
     tts.addEventListener('play', ()=> talking=true);
@@ -68,7 +66,6 @@ document.addEventListener('DOMContentLoaded', () => {
     tts.addEventListener('pause',()=> talking=false);
   }
 
-  // garde-fou sanctuaire
   let sanctuaireActif = false;
 
   function safePlay(a){ if(!a) return; a.currentTime=0; const p=a.play(); if(p&&p.catch) p.catch(()=>{}); }
@@ -104,17 +101,17 @@ document.addEventListener('DOMContentLoaded', () => {
   btnMode?.addEventListener('click', ()=> overlay.open(false));
   document.addEventListener('keydown', e=>{ if(e.key==='Escape' && !overlayEl.classList.contains('overlay-hidden')) overlay.close(); });
 
-  // ouvrir sanctuaire
+  // Ouvrir sanctuaire : affiche zone, musique, overlay, puis disparaît
   btnOpen?.addEventListener('click', ()=>{
     fetch('/activer-ankaa').catch(()=>{});
     if(zone) zone.style.display='grid';
     safePlay(bgm); safePlay(sOpen);
-    overlay.open(true);              // oblige le choix d'un mode
-    btnOpen.style.display='none';
-    sanctuaireActif = true;          // <- activation
+    overlay.open(true);                   // oblige le choix d'un mode
+    btnOpen.style.display='none';         // disparaît
+    sanctuaireActif = true;
   });
 
-  // sélectionner mode
+  // Sélection mode
   function setMode(k){
     try{ localStorage.setItem('mode', k); }catch(_){}
     btnGo&&(btnGo.disabled=false); input&&(input.disabled=false);
@@ -124,7 +121,7 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
   });
 
-  // micro (mode vocal) — désactivation propre
+  // Mode vocal propre
   let vocalMode=false, recognizing=false, recog=null;
   function initSpeech(){
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -139,11 +136,7 @@ document.addEventListener('DOMContentLoaded', () => {
     r.onerror = ()=> recognizing=false;
     return r;
   }
-  function startRecog(){
-    if(!recog) recog=initSpeech();
-    if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2200); vocalMode=false; return; }
-    if(!recognizing){ try{ recog.start(); recognizing=true; }catch{} }
-  }
+  function startRecog(){ if(!recog) recog=initSpeech(); if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2200); vocalMode=false; return; } if(!recognizing){ try{ recog.start(); recognizing=true; }catch{} } }
   function stopRecog(){ try{ recog && recog.stop(); }catch{} recognizing=false; }
 
   btnVocal && btnVocal.addEventListener('click', ()=>{
@@ -152,12 +145,8 @@ document.addEventListener('DOMContentLoaded', () => {
     if(vocalMode){ startRecog(); btnVocal.classList.add('active'); }
     else { stopRecog(); btnVocal.classList.remove('active'); }
   });
-
-  // suspend la reco pendant que la voix parle, puis reprend si vocalMode
-  if(tts){
-    tts.addEventListener('play', ()=>{ if(vocalMode) stopRecog(); });
-    tts.addEventListener('ended',()=>{ if(vocalMode) startRecog(); });
-  }
+  if(tts){ tts.addEventListener('play', ()=>{ if(vocalMode) stopRecog(); });
+           tts.addEventListener('ended',()=>{ if(vocalMode) startRecog(); }); }
 
   // INVOCATION
   async function envoyer(e){
@@ -199,7 +188,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnGo?.addEventListener('click', envoyer);
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyer(e); });
 
-  // SOUFFLE (lit un fragment du dataset)
+  // SOUFFLE (lit un fragment)
   let souffleLock=false, souffleTimer=null;
   btnVeil?.addEventListener('click', ()=>{
     if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2000); return; }
