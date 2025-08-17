@@ -37,8 +37,17 @@ document.addEventListener('DOMContentLoaded', () => {
   const overlayEl=document.getElementById('mode-overlay');
   const header=document.getElementById('en-tete');
 
-  // volumes
-  if(bgm) bgm.volume=0.22; [sClick,sOpen,sClose,sMode].forEach(a=>{ if(a) a.volume=0.30; });
+  // volumes — musique plus faible
+  if(bgm) bgm.volume=0.08;                 // ↓↓↓ moins fort
+  [sClick,sOpen,sClose,sMode].forEach(a=>{ if(a) a.volume=0.30; });
+
+  // DUCKING: baisse la musique pendant la voix
+  if(tts && bgm){
+    tts.addEventListener('play', ()=>{ try{ bgm.volume = 0.03; }catch{} });
+    const restore=()=>{ try{ bgm.volume = 0.08; }catch{} };
+    tts.addEventListener('ended', restore);
+    tts.addEventListener('pause', restore);
+  }
 
   // place bouton sanctuaire en haut-droite sous le titre
   function placeTopBtn(){
@@ -118,7 +127,7 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
   });
 
-  // micro (mode vocal) — bloqué si sanctuaire inactif
+  // micro (mode vocal) — mieux géré (désactivation propre)
   let vocalMode=false, recognizing=false, recog=null;
   function initSpeech(){
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -129,23 +138,45 @@ document.addEventListener('DOMContentLoaded', () => {
       const txt = (e.results[0] && e.results[0][0] && e.results[0][0].transcript) || '';
       if(txt){ input.value = txt; btnGo.click(); }
     };
-    r.onend = ()=>{ recognizing=false; if(vocalMode){ try{ r.start(); recognizing=true; }catch{} } };
+    // ne redémarre QUE si vocalMode est encore actif ET pas de TTS en cours
+    r.onend = ()=>{
+      recognizing=false;
+      if(vocalMode && !talking){
+        try{ r.start(); recognizing=true; }catch{}
+      }
+    };
     r.onerror = ()=> recognizing=false;
     return r;
   }
+  function startRecog(){
+    if(!recog) recog=initSpeech();
+    if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2200); vocalMode=false; return; }
+    if(!recognizing){
+      try{ recog.start(); recognizing=true; }catch{}
+    }
+  }
+  function stopRecog(){
+    try{ recog && recog.stop(); }catch{}
+    recognizing=false;
+  }
+
   btnVocal && btnVocal.addEventListener('click', ()=>{
     if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2200); return; }
     vocalMode=!vocalMode;
     if(vocalMode){
-      if(!recog) recog=initSpeech();
-      if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2200); vocalMode=false; return; }
-      try{ recog.start(); recognizing=true; }catch{}
+      startRecog();
       btnVocal.classList.add('active');
     } else {
-      try{ recog && recog.stop(); }catch{}
-      recognizing=false; btnVocal.classList.remove('active');
+      stopRecog();
+      btnVocal.classList.remove('active');
     }
   });
+
+  // suspend la reco pendant que la voix parle, puis reprend si vocalMode
+  if(tts){
+    tts.addEventListener('play', ()=>{ if(vocalMode) stopRecog(); });
+    tts.addEventListener('ended',()=>{ if(vocalMode) startRecog(); });
+  }
 
   // INVOCATION: même bouton = Start/Stop
   async function envoyer(e){
@@ -163,10 +194,9 @@ document.addEventListener('DOMContentLoaded', () => {
       const data=await r.json(); btnGo?.classList.remove('active');
       const rep=data?.reponse||"(Silence sacré)";
 
-      // feedback clair si TTS n'a pas marché
       if(data?.tts && data.tts !== 'ok'){
-        const why = data.tts === 'disabled' ? "TTS désactivé (edge-tts manquant ?)" : "Erreur TTS";
-        showPap(`𓂀 Ankaa : ${why}. Lecture texte affichée.`, 2400);
+        const why = data.tts === 'disabled' ? "TTS désactivé" : "Erreur TTS";
+        showPap(`𓂀 Ankaa : ${why}.`, 2200);
       }
 
       if(data?.audio_url && tts){
@@ -174,10 +204,8 @@ document.addEventListener('DOMContentLoaded', () => {
         tts.onloadedmetadata=function(){
           const d=Math.max(2000,(tts.duration||2.4)*1000);
           playVisu(d); showPap(rep,d);
-          safePlay(tts);
+          try{ tts.play(); }catch{}
         };
-        tts.onended=()=>{ talking=false; };
-        tts.onplay =()=>{ talking=true;  };
       } else {
         const d=Math.max(2200, rep.length*42);
         playVisu(d); showPap(rep,d);
@@ -190,14 +218,14 @@ document.addEventListener('DOMContentLoaded', () => {
   btnGo?.addEventListener('click', envoyer);
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyer(e); });
 
-  // SOUFFLE
+  // SOUFFLE (lit un fragment du dataset)
   let souffleLock=false, souffleTimer=null;
   btnVeil?.addEventListener('click', ()=>{
     if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2000); return; }
     if(btnVeil.classList.contains('active')){
       btnVeil.classList.remove('active'); clearInterval(souffleTimer); souffleTimer=null; safePlay(sClose);
     } else {
-      btnVeil.classList.add('active'); lancerSouffle(); souffleTimer=setInterval(lancerSouffle, 30000); safePlay(sOpen);
+      btnVeil.classList.add('active'); lancerSouffle(); souffleTimer=setInterval(lancerSouffle, 35000); safePlay(sOpen);
     }
   });
   function lancerSouffle(){
@@ -206,15 +234,11 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch("/invoquer",{method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ prompt:"souffle sacré", mode })})
     .then(r=>r.json()).then(data=>{
       const rep=data?.reponse||"(Silence sacré)";
-      if(data?.tts && data.tts !== 'ok'){
-        const why = data.tts === 'disabled' ? "TTS désactivé (edge-tts manquant ?)" : "Erreur TTS";
-        showPap(`𓂀 Ankaa : ${why}. Lecture texte affichée.`, 2200);
-      }
       if(data?.audio_url && tts){
         tts.src=data.audio_url+"?t="+Date.now();
         tts.onloadedmetadata=function(){
           const d=Math.max(2000,(tts.duration||2.4)*1000);
-          playVisu(d); showPap(rep,d); safePlay(tts);
+          playVisu(d); showPap(rep,d); try{ tts.play(); }catch{}
           setTimeout(()=> souffleLock=false, d+400);
         };
       } else {

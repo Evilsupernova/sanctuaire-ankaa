@@ -1,4 +1,4 @@
-# app.py — Sanctuaire Ankaa (V10 stable + garde-fous + fix TTS)
+# app.py — Sanctuaire Ankaa V10 (RAG complet + Souffle fragments + TTS Azure/edge + garde-fous)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
@@ -10,7 +10,7 @@ try:
 except Exception:
     edge_tts = None
 
-app = Flask(__name__, static_url_path="/static")
+app = Flask(__name__, static_url_path="/static", template_folder="templates")
 BASE = Path(__file__).parent.resolve()
 DATASET = BASE / "dataset"
 MEM = BASE / "memory"
@@ -54,7 +54,7 @@ def jload(p, d):
     except: return d
 def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2), encoding="utf-8")
 
-# ---------- RAG pour SOUFFLE ----------
+# ---------- Index RAG ----------
 FRAGS, DF, N = [], Counter(), 0
 def _read_any(p):
     for enc in ("utf-8","latin-1"):
@@ -115,20 +115,47 @@ def retrieve(q, k=3, min_score=1.02):
     for did,sc in ranked[:max(12,k*3)]:
         if sc<min_score: continue
         d=FRAGS[did]
-        out.append({"file":d["file"],"text":d["text"],"score":round(sc,2)})
+        out.append({"id":d["id"],"file":d["file"],"text":d["text"],"score":round(sc,2)})
         if len(out)>=k: break
     return out
-build_index()
 
-# ---------- Génération de réponse ----------
+# ---------- Génération ----------
 def is_greet(s):
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 def greet(): return "Salut, frère 🌙. Je t’écoute — qu’est-ce qu’on éclaire ?"
 
-def rag_answer(u):
-    src=retrieve(u, k=3)
-    if not src: return "Je n’ai rien de net dans les écrits. Donne-moi un indice précis et je fouille mieux."
-    return "\n".join([f"• {' '.join(_clean(s['text']).split()[:80])}…" for s in src])
+def compose_from_dataset(user_text, k=3):
+    """Renvoie un texte PARLABLE basé sur les meilleurs fragments du dataset."""
+    hits = retrieve(user_text, k=k)
+    if not hits:
+        return None
+    # courte synthèse + une courte citation lisible
+    bullets=[]
+    for h in hits:
+        frag=_clean(h["text"])
+        quote=" ".join(frag.split()[:60])
+        bullets.append(f"• {quote}…")
+    intro = "Dans tes écrits, voici ce qui résonne :"
+    outro = random.choice([
+        "Si tu veux, on peut creuser un de ces points.",
+        "Je peux détailler l’un de ces passages si tu me dis lequel t’appelle.",
+        "Dis-moi où poser la lampe, et j’ouvre le texte."
+    ])
+    return f"{intro}\n" + "\n".join(bullets) + f"\n\n{outro}"
+
+def pick_random_fragment():
+    if not FRAGS: return None
+    frag = random.choice(FRAGS)
+    text = " ".join(_clean(frag["text"]).split()[:80])
+    return text
+
+def rag_answer_for_breath():
+    # souffle = lit un fragment du corpus, pas un conseil générique
+    frag = pick_random_fragment()
+    if frag:
+        return f"{frag}\n\n— Respire, je suis là."
+    # fallback si pas de dataset
+    return "Inspire par le nez, retiens une seconde, expire doucement. — La flamme veille."
 
 def dialogue_answer(user):
     user = _clean(user)
@@ -144,14 +171,17 @@ def dialogue_answer(user):
     return f"{lead} {ask}"
 
 def answer(user, mode):
-    if is_greet(user): return greet()
-    if _norm(user)=="souffle sacre":
-        base=rag_answer("souffle méditation paix respiration calme")
-        fin=random.choice(["— Respire, je suis là.","— Laisse la lumière s’asseoir dans le souffle.","— Reste doux avec toi, la flamme veille."])
-        return f"{base}\n\n{fin}"
+    if is_greet(user):
+        return greet()
+    if _norm(user) == "souffle sacre":
+        return rag_answer_for_breath()
+    # Par défaut → se REFERER au dataset d'abord, sinon dialogue
+    composed = compose_from_dataset(user, k=3)
+    if composed:
+        return composed
     return dialogue_answer(user)
 
-# ---------- Anti-lecture TTS ----------
+# ---------- Nettoyage TTS ----------
 BAD = [
     r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
     r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
@@ -163,9 +193,30 @@ def strip_tts(txt):
     for p in BAD: t=re.sub(p, " ", t)
     return re.sub(r"\s+"," ", t).strip(" .")
 
-# Fallback edge-tts (grand public, peut 403 en datacenter)
+# ---------- TTS (Azure prioritaire, edge-tts fallback) ----------
+def _tts_azure(text, voice, out_file):
+    try:
+        import azure.cognitiveservices.speech as speechsdk
+        key = os.getenv("AZURE_SPEECH_KEY")
+        region = os.getenv("AZURE_SPEECH_REGION")
+        if not key or not region:
+            return "disabled"
+        speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
+        speech_config.speech_synthesis_voice_name = voice
+        speech_config.set_speech_synthesis_output_format(
+            speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
+        )
+        audio_config = speechsdk.audio.AudioOutputConfig(filename=str(out_file))
+        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
+        result = synthesizer.speak_text_async(text).get()
+        ok = (result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted)
+        return "ok" if (ok and out_file.exists() and out_file.stat().st_size>800) else "error"
+    except Exception as e:
+        print("[azure-tts error]", e)
+        return "error"
+
 async def _edge_async(text, voice, rate, pitch, out_path):
-    import edge_tts
+    if edge_tts is None: return "disabled"
     kwargs = {"voice": voice}
     if rate:  kwargs["rate"]  = rate
     if pitch and pitch != "default": kwargs["pitch"] = pitch
@@ -174,6 +225,8 @@ async def _edge_async(text, voice, rate, pitch, out_path):
     return "ok"
 
 def _tts_edge(text, voice, rate, pitch, out_file):
+    if edge_tts is None:
+        return "disabled"
     try:
         if out_file.exists():
             try: out_file.unlink()
@@ -189,30 +242,8 @@ def _tts_edge(text, voice, rate, pitch, out_file):
         print("[edge-tts error]", e)
         return "error"
 
-def _tts_azure(text, voice, out_file):
-    try:
-        import azure.cognitiveservices.speech as speechsdk
-        key = os.getenv("AZURE_SPEECH_KEY")
-        region = os.getenv("AZURE_SPEECH_REGION")
-        if not key or not region:
-            return "disabled"
-        speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
-        speech_config.speech_synthesis_voice_name = voice
-        # MP3 24kHz 48kbps mono
-        speech_config.set_speech_synthesis_output_format(
-            speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3
-        )
-        audio_config = speechsdk.audio.AudioOutputConfig(filename=str(out_file))
-        synthesizer = speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-        result = synthesizer.speak_text_async(text).get()
-        ok = (result.reason == speechsdk.ResultReason.SynthesizingAudioCompleted)
-        return "ok" if (ok and out_file.exists() and out_file.stat().st_size>800) else "error"
-    except Exception as e:
-        print("[azure-tts error]", e)
-        return "error"
-
-def do_tts(text, mode, is_souffle, out_file):
-    # Choix de la voix
+def do_tts(text, mode, is_souffle, out_file: Path):
+    # Choix voix
     if is_souffle:
         voice = VOIX_HOMME.get(mode, "fr-FR-RemyMultilingualNeural"); rate, pitch = "-2%", "default"
     else:
@@ -220,15 +251,14 @@ def do_tts(text, mode, is_souffle, out_file):
 
     clean = strip_tts(text) or "Silence sacré."
 
-    # 1) Préférence: Azure (fiable en prod)
-    if os.getenv("AZURE_SPEECH_KEY") and os.getenv("AZURE_SPEECH_REGION"):
-        st = _tts_azure(clean, voice, out_file)
-        if st == "ok":
-            return "ok"
-        # si Azure échoue, on tente edge-tts en secours
+    # 1) Azure d'abord (fiable en prod)
+    st = _tts_azure(clean, voice, out_file)
+    if st == "ok":
+        return "ok"
+    if st != "disabled":
         print("[tts] Azure KO, tentative edge-tts fallback…")
 
-    # 2) Fallback: edge-tts (peut 403 en datacenter)
+    # 2) Fallback edge-tts (peut 403 en datacenter, ok en local)
     return _tts_edge(clean, voice, rate, pitch, out_file)
 
 # ---------- Routes ----------
@@ -236,7 +266,6 @@ def do_tts(text, mode, is_souffle, out_file):
 def index():
     return render_template("index.html")
 
-# Bouton sanctuaire (ping no-op pour logs/monitoring si besoin)
 @app.route("/activer-ankaa", methods=["GET"])
 def activer_ankaa():
     return jsonify({"ok": True, "ts": datetime.now().isoformat()})
@@ -268,4 +297,6 @@ def sw():
     return app.send_static_file("service-worker.js")
 
 if __name__=="__main__":
+    build_index()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT",5000)), debug=True)
+
