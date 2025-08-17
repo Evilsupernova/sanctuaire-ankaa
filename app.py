@@ -1,4 +1,4 @@
-# app.py — Sanctuaire Ankaa (Mobile V10 stable/fixes)
+# app.py — Sanctuaire Ankaa (V10 stable + garde-fous + fix TTS)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
@@ -33,7 +33,7 @@ VOIX_HOMME = {
 }
 MODES = {m: {"mem": MEM / f"memoire_{m}.json"} for m in VOIX_FEMME}
 
-def _clean(s): 
+def _clean(s):
     if not s: return ""
     s = s.replace("\u200b","").replace("\ufeff","")
     return re.sub(r"\s+"," ", s.replace("\n"," ")).strip()
@@ -49,7 +49,7 @@ def _tok(s): return [t for t in _norm(s).split() if len(t)>2]
 
 STOP_FR = set("au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont".split())
 
-def jload(p, d): 
+def jload(p, d):
     try: return json.loads(Path(p).read_text("utf-8")) if Path(p).exists() else d
     except: return d
 def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2), encoding="utf-8")
@@ -81,7 +81,7 @@ def _split(txt, name):
 def build_index():
     global FRAGS, DF, N
     FRAGS, DF, N = [], Counter(), 0
-    if not DATASET.exists(): 
+    if not DATASET.exists():
         print("[INDEX] dataset/ manquant"); return
     for p in sorted(DATASET.glob("*.txt")):
         raw=_read_any(p)
@@ -121,7 +121,7 @@ def retrieve(q, k=3, min_score=1.02):
 build_index()
 
 # ---------- Génération de réponse ----------
-def is_greet(s): 
+def is_greet(s):
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 def greet(): return "Salut, frère 🌙. Je t’écoute — qu’est-ce qu’on éclaire ?"
 
@@ -131,9 +131,8 @@ def rag_answer(u):
     return "\n".join([f"• {' '.join(_clean(s['text']).split()[:80])}…" for s in src])
 
 def dialogue_answer(user):
-    # Pas de dataset ici → réponse humaine courte + relance
     user = _clean(user)
-    if len(user) < 4: 
+    if len(user) < 4:
         return "Dis-m’en un peu plus et je te réponds franchement."
     lead = random.choice(["Je comprends.","D’accord.","Je te suis.","Je vois."])
     ask  = random.choice([
@@ -150,7 +149,6 @@ def answer(user, mode):
         base=rag_answer("souffle méditation paix respiration calme")
         fin=random.choice(["— Respire, je suis là.","— Laisse la lumière s’asseoir dans le souffle.","— Reste doux avec toi, la flamme veille."])
         return f"{base}\n\n{fin}"
-    # INVOCATION → dialogue naturel (sans dataset)
     return dialogue_answer(user)
 
 # ---------- Anti-lecture TTS ----------
@@ -165,10 +163,9 @@ def strip_tts(txt):
     for p in BAD: t=re.sub(p, " ", t)
     return re.sub(r"\s+"," ", t).strip(" .")
 
-# ---------- TTS edge-tts (compat max) ----------
+# ---------- TTS edge-tts ----------
 async def _tts_async(text, voice, rate, pitch, out_path: Path):
     if edge_tts is None: return "disabled"
-    # NB: pitch 'default' est accepté ; ne pas mettre '+0%'
     kwargs = {"voice": voice}
     if rate:  kwargs["rate"]  = rate
     if pitch and pitch != "default": kwargs["pitch"] = pitch
@@ -177,7 +174,9 @@ async def _tts_async(text, voice, rate, pitch, out_path: Path):
     return "ok"
 
 def do_tts(text, mode, is_souffle, out_file: Path):
-    if edge_tts is None: return "disabled"
+    if edge_tts is None:
+        print("[TTS] edge-tts indisponible -> audio désactivé")
+        return "disabled"
     try:
         if is_souffle:
             voice = VOIX_HOMME.get(mode, "fr-FR-RemyMultilingualNeural")
@@ -186,7 +185,7 @@ def do_tts(text, mode, is_souffle, out_file: Path):
             voice = VOIX_FEMME.get(mode, "fr-FR-DeniseNeural")
             rate, pitch = "+2%", "default"
 
-        clean = strip_tts(text)
+        clean = strip_tts(text) or "Silence sacré."
         if out_file.exists():
             try: out_file.unlink()
             except: pass
@@ -194,7 +193,7 @@ def do_tts(text, mode, is_souffle, out_file: Path):
         asyncio.set_event_loop(loop)
         loop.run_until_complete(asyncio.wait_for(_tts_async(clean, voice, rate, pitch, out_file), timeout=20))
         loop.close()
-        return "ok" if (out_file.exists() and out_file.stat().st_size>1000) else "error"
+        return "ok" if (out_file.exists() and out_file.stat().st_size>800) else "error"
     except Exception as e:
         try: loop.close()
         except: pass
@@ -205,6 +204,11 @@ def do_tts(text, mode, is_souffle, out_file: Path):
 @app.route("/")
 def index():
     return render_template("index.html")
+
+# Bouton sanctuaire (ping no-op pour logs/monitoring si besoin)
+@app.route("/activer-ankaa", methods=["GET"])
+def activer_ankaa():
+    return jsonify({"ok": True, "ts": datetime.now().isoformat()})
 
 @app.route("/invoquer", methods=["POST"])
 def invoquer():

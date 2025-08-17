@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   (function unlock(){
     const ids=['musique-sacree','tts-player','s-click','s-open','s-close','s-mode'];
     const list=ids.map(id=>document.getElementById(id));
-    const arm=()=>{ list.forEach(a=>{ if(!a) return; a.muted=true; const p=a.play(); if(p&&p.finally) p.finally(()=>{a.pause();a.muted=false;}); }); 
+    const arm=()=>{ list.forEach(a=>{ if(!a) return; a.muted=true; const p=a.play(); if(p&&p.finally) p.finally(()=>{a.pause();a.muted=false;}); });
       window.removeEventListener('touchstart', arm,{passive:true}); window.removeEventListener('click', arm,{passive:true}); };
     window.addEventListener('touchstart', arm,{once:true,passive:true});
     window.addEventListener('click', arm,{once:true,passive:true});
@@ -50,44 +50,21 @@ document.addEventListener('DOMContentLoaded', () => {
   placeTopBtn(); window.addEventListener('resize', placeTopBtn);
   window.visualViewport && window.visualViewport.addEventListener('resize', placeTopBtn);
 
-  // état
+  // état initial : tout bloqué
   try{ localStorage.removeItem('mode'); }catch(_){}
   if(zone) zone.style.display='none';
   [btnGo,input].forEach(el=> el && (el.disabled=true));
-  let talking=false; // ← état parole fiable (play/pause/ended)
+
+  // état parole fiable
+  let talking=false;
   if(tts){
     tts.addEventListener('play', ()=> talking=true);
     tts.addEventListener('ended',()=> talking=false);
     tts.addEventListener('pause',()=> talking=false);
   }
 
-  // micro (mode vocal)
-  let vocalMode=false, recognizing=false, recog=null;
-  function initSpeech(){
-    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if(!SR) return null;
-    const r = new SR();
-    r.lang='fr-FR'; r.interimResults=false; r.continuous=false;
-    r.onresult = e=>{
-      const txt = (e.results[0] && e.results[0][0] && e.results[0][0].transcript) || '';
-      if(txt){ input.value = txt; btnGo.click(); }
-    };
-    r.onend = ()=>{ recognizing=false; if(vocalMode){ try{ r.start(); recognizing=true; }catch{} } };
-    r.onerror = ()=> recognizing=false;
-    return r;
-  }
-  btnVocal && btnVocal.addEventListener('click', ()=>{
-    vocalMode=!vocalMode;
-    if(vocalMode){
-      if(!recog) recog=initSpeech();
-      if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2000); vocalMode=false; return; }
-      try{ recog.start(); recognizing=true; }catch{}
-      btnVocal.classList.add('active');
-    } else {
-      try{ recog && recog.stop(); }catch{}
-      recognizing=false; btnVocal.classList.remove('active');
-    }
-  });
+  // garde-fou sanctuaire
+  let sanctuaireActif = false;
 
   function safePlay(a){ if(!a) return; a.currentTime=0; const p=a.play(); if(p&&p.catch) p.catch(()=>{}); }
   function stopSpeaking(){
@@ -99,10 +76,12 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   function playVisu(d){ eye && eye.classList.add('playing'); aura && aura.classList.add('active');
     setTimeout(()=>{ eye && eye.classList.remove('playing'); aura && aura.classList.remove('active'); }, Math.max(d,1200)); }
-  function showPap(text,d){ if(!pap||!ptxt) return; pap.style.display='flex'; ptxt.textContent='';
-    let i=0,L=text.length,step=Math.max(8,d/Math.max(1,L));
-    (function loop(){ if(i<L){ ptxt.textContent+=text[i++]; setTimeout(loop,step);} })();
-    setTimeout(()=>{ pap.style.display='none'; ptxt.textContent=''; }, Math.max(d+300,2000)); }
+
+  function showPap(text,d=2000){
+    if(!pap||!ptxt) return;
+    pap.style.display='flex'; ptxt.textContent=text;
+    setTimeout(()=>{ pap.style.display='none'; ptxt.textContent=''; }, d);
+  }
 
   // overlay
   const overlay={
@@ -123,11 +102,10 @@ document.addEventListener('DOMContentLoaded', () => {
   btnOpen?.addEventListener('click', ()=>{
     fetch('/activer-ankaa').catch(()=>{});
     if(zone) zone.style.display='grid';
-    btnGo && (btnGo.disabled=true);
-    input && (input.disabled=true);
     safePlay(bgm); safePlay(sOpen);
-    overlay.open(true);
-    btnOpen.style.display='none'; // disparaît après ouverture
+    overlay.open(true);              // oblige le choix d'un mode
+    btnOpen.style.display='none';
+    sanctuaireActif = true;          // <- activation
   });
 
   // sélectionner mode
@@ -140,9 +118,39 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
   });
 
+  // micro (mode vocal) — bloqué si sanctuaire inactif
+  let vocalMode=false, recognizing=false, recog=null;
+  function initSpeech(){
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if(!SR) return null;
+    const r = new SR();
+    r.lang='fr-FR'; r.interimResults=false; r.continuous=false;
+    r.onresult = e=>{
+      const txt = (e.results[0] && e.results[0][0] && e.results[0][0].transcript) || '';
+      if(txt){ input.value = txt; btnGo.click(); }
+    };
+    r.onend = ()=>{ recognizing=false; if(vocalMode){ try{ r.start(); recognizing=true; }catch{} } };
+    r.onerror = ()=> recognizing=false;
+    return r;
+  }
+  btnVocal && btnVocal.addEventListener('click', ()=>{
+    if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2200); return; }
+    vocalMode=!vocalMode;
+    if(vocalMode){
+      if(!recog) recog=initSpeech();
+      if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2200); vocalMode=false; return; }
+      try{ recog.start(); recognizing=true; }catch{}
+      btnVocal.classList.add('active');
+    } else {
+      try{ recog && recog.stop(); }catch{}
+      recognizing=false; btnVocal.classList.remove('active');
+    }
+  });
+
   // INVOCATION: même bouton = Start/Stop
   async function envoyer(e){
     e && e.preventDefault();
+    if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2000); return; }
     if(talking){ stopSpeaking(); return; }
 
     const prompt=(input?.value||"").trim(); if(!prompt) return;
@@ -154,6 +162,12 @@ document.addEventListener('DOMContentLoaded', () => {
       const r=await fetch("/invoquer",{method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ prompt, mode })});
       const data=await r.json(); btnGo?.classList.remove('active');
       const rep=data?.reponse||"(Silence sacré)";
+
+      // feedback clair si TTS n'a pas marché
+      if(data?.tts && data.tts !== 'ok'){
+        const why = data.tts === 'disabled' ? "TTS désactivé (edge-tts manquant ?)" : "Erreur TTS";
+        showPap(`𓂀 Ankaa : ${why}. Lecture texte affichée.`, 2400);
+      }
 
       if(data?.audio_url && tts){
         tts.src=data.audio_url+"?t="+Date.now();
@@ -179,6 +193,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // SOUFFLE
   let souffleLock=false, souffleTimer=null;
   btnVeil?.addEventListener('click', ()=>{
+    if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2000); return; }
     if(btnVeil.classList.contains('active')){
       btnVeil.classList.remove('active'); clearInterval(souffleTimer); souffleTimer=null; safePlay(sClose);
     } else {
@@ -191,6 +206,10 @@ document.addEventListener('DOMContentLoaded', () => {
     fetch("/invoquer",{method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ prompt:"souffle sacré", mode })})
     .then(r=>r.json()).then(data=>{
       const rep=data?.reponse||"(Silence sacré)";
+      if(data?.tts && data.tts !== 'ok'){
+        const why = data.tts === 'disabled' ? "TTS désactivé (edge-tts manquant ?)" : "Erreur TTS";
+        showPap(`𓂀 Ankaa : ${why}. Lecture texte affichée.`, 2200);
+      }
       if(data?.audio_url && tts){
         tts.src=data.audio_url+"?t="+Date.now();
         tts.onloadedmetadata=function(){
@@ -202,11 +221,5 @@ document.addEventListener('DOMContentLoaded', () => {
         const d=Math.max(2200, rep.length*42); playVisu(d); showPap(rep,d); setTimeout(()=> souffleLock=false, d+400);
       }
     }).catch(()=>{ showPap("𓂀 Ankaa : Erreur de communication.", 2000); souffleLock=false; });
-  }
-
-  function showPap(msg, d=2000){
-    if(!pap||!ptxt) return;
-    pap.style.display='flex'; ptxt.textContent=msg;
-    setTimeout(()=>{ pap.style.display='none'; ptxt.textContent=''; }, d);
   }
 });

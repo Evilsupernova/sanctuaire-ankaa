@@ -9,10 +9,10 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
   text-align:center; color:#ffe066; font-weight:700; letter-spacing:.09em;
   text-shadow:0 0 10px #000, 0 0 32px #ffe066;
   margin: 4px 12px 6px;
-  white-space: nowrap;        /* UNE SEULE LIGNE */
+  white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: clamp(16px, 4.4vw, 32px);  /* un poil plus petit pour iPhone */
+  font-size: clamp(16px, 4.4vw, 32px);
 }
 .phrase-sacrée{
   text-align:center; color:#fff9c4; font-style:italic;
@@ -34,7 +34,7 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 .tool-btn:hover,.tool-btn:focus{ background:#ffe066; color:#2c2108; transform:translateY(-1px); border-color:rgba(255,224,102,.55); box-shadow:0 0 16px 4px #ffe06699; }
 
 /* Œil plus grand */
-.oeil-centre{ position:relative; z-index:2; width:clamp(260px,62vw,440px); margin:clamp(8px,2.5vh,24px) auto 0; }
+.oeil-centre{ position:relative; z-index:2; width:clamp(320px,70vw,520px); margin:clamp(8px,2.5vh,24px) auto 0; }
 #oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; }
 #aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:96%; height:72%;
   filter:blur(16px) brightness(1.05); background:radial-gradient(ellipse 60% 42% at 50% 50%, #ffe06666 15%, #ffe06622 60%, #0000 100%);
@@ -100,13 +100,13 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 }
 .mode-option:hover,.mode-option:focus{ transform:translateY(-2px) scale(1.02); border-color:rgba(255,224,102,.55); box-shadow:0 0 18px rgba(255,224,102,.22); }
 
-//* bouton Sanctuaire en haut-droite sous le titre */
+/* bouton Sanctuaire en haut-droite sous le titre */
 #bouton-sanctuaire{
   position:fixed; right:12px; left:auto;
   width:44px; height:44px; border-radius:30px;
-  top: calc(70px + env(safe-area-inset-top)); /* js recale exactement */
+  top: calc(70px + env(safe-area-inset-top)); /* recalc JS */
   z-index:10060;
   background:rgba(32,28,8,.60); color:#ffe066; border:1px solid rgba(255,224,102,.25);
   box-shadow:0 0 7px rgba(255,224,102,.22);
 }
-#bouton-sanctuaire:hover{ background:#ffe066; color:#2c2108; }* Ajuste la colonne sous le titre via JS */
+#bouton-sanctuaire:hover{ background:#ffe066; color:#2c2108; }
