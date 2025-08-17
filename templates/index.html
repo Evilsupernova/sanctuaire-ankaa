@@ -4,7 +4,6 @@
   <meta charset="UTF-8" />
   <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
 
-  <!-- PWA -->
   <link rel="manifest" href="/static/manifest.json?v=13">
   <meta name="theme-color" content="#0b0b10">
   <meta name="apple-mobile-web-app-capable" content="yes">
@@ -17,7 +16,6 @@
   <script defer src="/static/script.js?v=13"></script>
 </head>
 <body>
-  <!-- Fond -->
   <div class="fond-cosmique"></div>
 
   <!-- Audio -->
@@ -28,48 +26,36 @@
   <audio id="s-close"  src="/static/assets/portal_close.mp3" preload="auto"></audio>
   <audio id="s-mode"   src="/static/assets/mode_select.mp3" preload="auto"></audio>
 
-  <!-- En-tête -->
   <header id="en-tete">
-    <div id="titre-wrap">
-      <div class="titre-sacré" id="titre-unique">
-        𓇳 𓂀 <span class="titre-texte">LE CERCLE DES VEILLEURS</span> 𓂀 𓇳
-      </div>
-    </div>
-    <div class="phrase-sacrée">
-      « Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »
-    </div>
+    <div class="titre-sacré">𓇳 𓂀 <span class="titre-texte">LE CERCLE DES VEILLEURS</span> 𓂀 𓇳</div>
+    <div class="phrase-sacrée">« Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »</div>
   </header>
 
-  <!-- Outils : gauche = Mode + Souffle / droite = Ouvrir (☥) -->
-  <div id="tools-left" aria-label="Outils à gauche">
+  <!-- Colonne outils (empilée, sous le titre) -->
+  <div id="tools-column" aria-label="Outils du sanctuaire">
     <button id="btn-mode-mini" class="tool-btn" title="Choisir un mode">𓋹</button>
+    <button id="bouton-sanctuaire" class="tool-btn" title="Ouvrir le Sanctuaire">☥</button>
     <button id="btn-veille-mini" class="tool-btn" title="Souffle sacré">𓂀</button>
-  </div>
-  <div id="tools-right" aria-label="Ouvrir Sanctuaire">
-    <button id="bouton-sanctuaire" class="tool-btn accent" title="Ouvrir le Sanctuaire">☥</button>
+    <button id="btn-vocal" class="tool-btn" title="Mode vocal (lecture auto)">𓆱</button>
   </div>
 
-  <!-- Œil & aura -->
   <div class="oeil-centre">
-    <img id="oeil-anim" src="/static/assets/oeil_orus_ailes.png" alt="Œil d'Horus ailé" />
+    <img id="oeil-anim" src="/static/assets/oeil_orus_ailes.png" alt="Œil d'Horus"/>
     <div id="aura-ankaa"></div>
   </div>
 
-  <!-- Papyrus -->
   <div id="papyrus-zone" class="papyrus-cercle" style="display:none;">
     <span id="papyrus-texte"></span>
   </div>
 
-  <!-- Zone chat -->
   <div id="zone-invocation" class="zone-chat">
     <input id="verbe" class="champ-verbe" type="text" placeholder="＊ Invoque ton Verbe sacré…" />
-    <button id="btn-verbe" title="Invoquer">𓂀</button>
+    <button id="btn-verbe" title="Invoquer / Stop">𓂀</button>
   </div>
 
-  <!-- Loader -->
   <div id="points-sacrés">⋅⋅⋅</div>
 
-  <!-- Overlay sélection de mode -->
+  <!-- Overlay mode -->
   <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
     <div class="overlay-backdrop"></div>
     <div class="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="mode-title">
@@ -84,7 +70,6 @@
     </div>
   </div>
 
-  <!-- SW -->
   <script>
     if ("serviceWorker" in navigator) {
       window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=13"));
