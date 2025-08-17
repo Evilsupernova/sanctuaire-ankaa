@@ -1,16 +1,11 @@
-# app.py — Sanctuaire Ankaa V10 mobile (fix TTS edge-tts + voix séparées + RAG FR)
-# - Plus de 'ssml=True' (erreur Communicate.__init__)
-# - Souffle = voix H (Remy), Invocation = voix F (par mode)
-# - Nettoyage anti-lecture (speech=, balises, etc.)
-# - Réponses plus longues (RAG k=5, seuil réduit)
-
-import os, re, json, math, asyncio, unicodedata, random
+# app.py — Sanctuaire Ankaa V10 mobile (fix voix, audio unique, réponses + longues)
+import os, re, json, math, asyncio, unicodedata, random, time
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
 from flask import Flask, render_template, request, jsonify
 
-# --- TTS (Edge) ---
+# edge-tts sans ssml=True
 try:
     import edge_tts
 except Exception:
@@ -25,7 +20,7 @@ AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 app = Flask(__name__, static_url_path="/static")
 
-# ---------------------- MODES & VOIX ----------------------
+# ---------------- Voix ----------------
 FEMALE_BY_MODE = {
     "sentinelle8": "fr-FR-VivienneMultilingualNeural",
     "dragosly23":  "fr-CA-SylvieNeural",
@@ -34,14 +29,7 @@ FEMALE_BY_MODE = {
 }
 MALE_VOICE = "fr-FR-RemyMultilingualNeural"
 
-MEM_PATHS = {
-    "sentinelle8": MEMORY_DIR / "memoire_sentinelle.json",
-    "dragosly23":  MEMORY_DIR / "memoire_dragosly.json",
-    "invite":      MEMORY_DIR / "memoire_invite.json",
-    "verbe":       MEMORY_DIR / "memoire_verbe.json",
-}
-
-# ---------------------- UTILS ----------------------
+# ---------------- Utils ----------------
 def _clean(s: str) -> str:
     if not s: return ""
     s = s.replace("\u200b","").replace("\ufeff","")
@@ -56,20 +44,23 @@ def _norm(s: str) -> str:
     s = re.sub(r"\s+", " ", s).strip()
     return s
 
-def _load_json(p: Path, default):
-    try:
-        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else default
-    except Exception:
-        return default
+# Anti-lecture de balises / paramètres techniques
+BAD_PATTERNS = [
+    r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
+    r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
+    r"(?mi)^\s*(?:Dialogue\s*:|S\d+\])\s*", r"[𓂀☥]\s*[A-ZÉÈÊÎÂÔÛ][^:]{0,20}:\s*"
+]
+def strip_tts_noise(txt: str) -> str:
+    t = txt or ""
+    for pat in BAD_PATTERNS:
+        t = re.sub(pat, " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" .")
+    return t.replace("..","…")
 
-def _save_json(p: Path, data):
-    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-
-# ---------------------- RAG (BM25 light) ----------------------
+# ---------------- RAG léger (BM25) ----------------
 STOP_FR = set("""
 au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont
 """.strip().split())
-
 FRAGMENTS, DF, N_DOCS = [], Counter(), 0
 
 def _read_any(p: Path) -> str:
@@ -100,9 +91,7 @@ def _split(txt: str, file_name: str):
 def build_index():
     global FRAGMENTS, DF, N_DOCS
     FRAGMENTS, DF, N_DOCS = [], Counter(), 0
-    if not DATASET_DIR.exists():
-        print("[INDEX] dataset/ introuvable.")
-        return
+    if not DATASET_DIR.exists(): return
     for p in sorted(DATASET_DIR.glob("*.txt")):
         raw = _read_any(p)
         if not raw: continue
@@ -113,7 +102,7 @@ def build_index():
             FRAGMENTS.append(d)
             for t in set(toks): DF[t] += 1
     N_DOCS = len(FRAGMENTS)
-    print(f"[INDEX] {N_DOCS} fragments indexés.")
+build_index()
 
 def _bm25(qt, k1=1.5, b=0.75):
     if not FRAGMENTS: return []
@@ -142,66 +131,50 @@ def retrieve(q: str, k: int = 5, min_score: float = 0.95):
         if len(out) >= k: break
     return out
 
-build_index()
-
 def rag_answer(user: str) -> str:
     src = retrieve(user, k=5, min_score=0.95)
     if not src:
         return "Je n’ai rien trouvé de net dans les écrits pour ça. Donne-moi un indice concret et je refouille."
-    # ~120 mots par fragment pour plus de matière
     lines = [f"• {' '.join(_clean(s['text']).split()[:120])}…" for s in src]
     return "\n".join(lines)
 
-# ---------------------- Dialogique légère ----------------------
 def is_greeting(s: str) -> bool:
     t = _norm(s)
     return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 
-# ---------------------- Anti-lecture TTS ----------------------
-BAD_PATTERNS = [
-    r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
-    r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
-    r"(?mi)^\s*(?:Dialogue\s*:|S\d+\])\s*", r"[𓂀☥]\s*[A-ZÉÈÊÎÂÔÛ][^:]{0,20}:\s*"
-]
-def strip_tts_noise(txt: str) -> str:
-    t = txt or ""
-    for pat in BAD_PATTERNS:
-        t = re.sub(pat, " ", t)
-    t = re.sub(r"\s+", " ", t).strip(" .")
-    return t
-
-# ---------------------- TTS (sans ssml=True) ----------------------
+# ---------------- TTS (fichier unique par requête) ----------------
 async def _tts_async(text: str, out_file: Path, *, voice: str, rate: str, pitch: str):
     if edge_tts is None: return "disabled"
-    # Communicate accepte voice/rate/pitch ; pas de paramètre 'ssml'
     comm = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch)
     await comm.save(str(out_file))
     return "ok"
 
-def synthesize(text: str, out_file: Path, *, male: bool, mode: str) -> str:
-    if edge_tts is None: return "disabled"
-    # Nettoyage du texte avant TTS
-    msg = strip_tts_noise(text).replace("..","…")
+def synthesize(text: str, *, male: bool, mode: str) -> tuple[str|None, str]:
+    """Retourne (audio_url, status)"""
+    if edge_tts is None:
+        return None, "disabled"
+    msg   = strip_tts_noise(text)
     voice = MALE_VOICE if male else FEMALE_BY_MODE.get(mode, "fr-FR-DeniseNeural")
-    # réglages doux (compatibles Render)
     rate  = "+0%" if male else "+2%"
     pitch = "-1st" if male else "+1st"
+    # nom unique => évite le cache SW/iOS
+    fname = f"anka_tts_{int(time.time()*1000)}.mp3"
+    out_file = AUDIO_DIR / fname
     try:
-        if out_file.exists():
-            try: out_file.unlink()
-            except Exception: pass
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
-        loop.run_until_complete(asyncio.wait_for(_tts_async(msg, out_file, voice=voice, rate=rate, pitch=pitch), timeout=20))
+        loop.run_until_complete(asyncio.wait_for(_tts_async(msg, out_file, voice=voice, rate=rate, pitch=pitch), timeout=25))
         loop.close()
-        return "ok" if out_file.exists() and out_file.stat().st_size > 1000 else "error"
+        if out_file.exists() and out_file.stat().st_size > 1000:
+            return f"/static/assets/{fname}", "ok"
+        return None, "error"
     except Exception as e:
         try: loop.close()
         except Exception: pass
         print("[TTS error]", e)
-        return "error"
+        return None, "error"
 
-# ---------------------- Génération ----------------------
+# ---------------- Génération ----------------
 def generate(user_input: str, mode: str) -> str:
     if is_greeting(user_input):
         return "Salut, frère 🌙. Que veux-tu éclairer maintenant ?"
@@ -219,7 +192,7 @@ def generate(user_input: str, mode: str) -> str:
     rel = f"On cible **{pivot}** ou tu veux un exemple concret ?"
     return f"{base}\n\n{rel}"
 
-# ---------------------- ROUTES ----------------------
+# ---------------- Routes ----------------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -233,21 +206,9 @@ def invoquer():
 
     texte = generate(prompt, mode)
 
-    # mémoire courte
-    mem_path = MEM_PATHS[mode]
-    mem = _load_json(mem_path, {"fragments":[]})
-    mem["fragments"].append({
-        "date": datetime.now().isoformat(timespec="seconds"),
-        "mode": mode, "prompt": prompt, "reponse": texte
-    })
-    mem["fragments"] = mem["fragments"][-200:]
-    _save_json(mem_path, mem)
-
-    # TTS : homme si "souffle sacré", sinon femme par mode
-    out_file = AUDIO_DIR / "anka_tts.mp3"
-    is_male  = (_norm(prompt) == "souffle sacre")
-    tts_status = synthesize(texte, out_file, male=is_male, mode=mode)
-    audio_url  = f"/static/assets/{out_file.name}" if tts_status == "ok" else None
+    # TTS : homme si "souffle sacré", sinon femme
+    is_male = (_norm(prompt) == "souffle sacre")
+    audio_url, tts_status = synthesize(texte, male=is_male, mode=mode)
 
     return jsonify({"reponse": texte, "audio_url": audio_url, "tts": tts_status})
 
