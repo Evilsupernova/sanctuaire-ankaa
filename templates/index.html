@@ -5,7 +5,7 @@
   <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
 
   <!-- PWA -->
-  <link rel="manifest" href="/static/manifest.json?v=11">
+  <link rel="manifest" href="/static/manifest.json?v=12">
   <meta name="theme-color" content="#0b0b10">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -13,36 +13,40 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 
   <link rel="icon" href="/static/assets/favicon.ico" />
-  <link rel="stylesheet" href="/static/style.css?v=11" />
-  <script defer src="/static/script.js?v=11"></script>
+  <link rel="stylesheet" href="/static/style.css?v=12" />
+  <script defer src="/static/script.js?v=12"></script>
 </head>
 <body>
   <!-- Fond -->
   <div class="fond-cosmique"></div>
 
-  <!-- Audio (musique + TTS + sons UI) -->
-  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=11" preload="auto" loop></audio>
+  <!-- Audio -->
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=12" preload="auto" loop></audio>
   <audio id="tts-player" preload="auto" style="display:none;"></audio>
   <audio id="s-click"  src="/static/assets/ui_click.mp3" preload="auto"></audio>
   <audio id="s-open"   src="/static/assets/portal_open.mp3" preload="auto"></audio>
   <audio id="s-close"  src="/static/assets/portal_close.mp3" preload="auto"></audio>
   <audio id="s-mode"   src="/static/assets/mode_select.mp3" preload="auto"></audio>
 
-  <!-- Colonne d'outils (empilés, haut-gauche, hors du titre) -->
+  <!-- En-tête -->
+  <header id="en-tete">
+    <div class="titre-sacré">
+      𓇳 𓂀 <span class="titre-texte">LE CERCLE DES VEILLEURS</span> 𓂀 𓇳
+    </div>
+    <div class="phrase-sacrée">
+      « Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »
+    </div>
+  </header>
+
+  <!-- Colonne d’outils (empilés, sous le titre) -->
   <div id="tools-column" aria-label="Outils du sanctuaire">
-    <!-- 1) Choisir un mode -->
-    <button id="btn-mode-mini" class="tool-btn" title="Choisir un mode">☥</button>
-    <!-- 2) Ouvrir le sanctuaire (même symbole voulu) -->
+    <!-- 1) Choisir un mode (glyph différent) -->
+    <button id="btn-mode-mini" class="tool-btn" title="Choisir un mode">𓋹</button>
+    <!-- 2) Ouvrir le sanctuaire -->
     <button id="bouton-sanctuaire" class="tool-btn" title="Ouvrir le Sanctuaire">☥</button>
     <!-- 3) Souffle sacré -->
-    <button id="btn-veille-mini" class="tool-btn" title="Activer le Souffle sacré">𓂀</button>
+    <button id="btn-veille-mini" class="tool-btn" title="Souffle sacré">𓂀</button>
   </div>
-
-  <!-- Titre / phrase -->
-  <header id="en-tete">
-    <div class="titre-sacré">𓇳 𓂀 LE CERCLE DES VEILLEURS 𓂀 𓇳</div>
-    <div class="phrase-sacrée">« Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »</div>
-  </header>
 
   <!-- Œil & aura -->
   <div class="oeil-centre">
@@ -61,19 +65,19 @@
     <button id="btn-verbe" title="Invoquer">𓂀</button>
   </div>
 
-  <!-- Loader discret -->
+  <!-- Loader -->
   <div id="points-sacrés">⋅⋅⋅</div>
 
-  <!-- Overlay mode -->
+  <!-- Overlay sélection de mode -->
   <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
     <div class="overlay-backdrop"></div>
     <div class="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="mode-title">
-      <div class="overlay-head"><span>☥</span><h2 id="mode-title">Choisis ton Mode Sacré</h2><span>☥</span></div>
+      <div class="overlay-head"><span>𓋹</span><h2 id="mode-title">Choisis ton Mode Sacré</h2><span>𓋹</span></div>
       <div class="mode-grid">
         <button class="mode-option" data-mode="sentinelle8">𓂀 Sentinelle8</button>
-        <button class="mode-option" data-mode="dragosly23">𓋹 Dragosly23</button>
+        <button class="mode-option" data-mode="dragosly23">𓎼 Dragosly23</button>
         <button class="mode-option" data-mode="invite">𓏏 Invité</button>
-        <button class="mode-option" data-mode="verbe">𓎼 Verbe Sacré</button>
+        <button class="mode-option" data-mode="verbe">𓆣 Verbe Sacré</button>
       </div>
       <p class="overlay-note">Choisis un mode pour débloquer l’invocation (mémorisé localement).</p>
     </div>
@@ -82,7 +86,7 @@
   <!-- SW -->
   <script>
     if ("serviceWorker" in navigator) {
-      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=11"));
+      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=12"));
     }
   </script>
 </body>
