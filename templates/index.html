@@ -1,53 +1,90 @@
 <!DOCTYPE html>
-<html lang="fr">
+<html lang="fr" data-mode="">
 <head>
-  <meta charset="utf-8" />
-  <title>𓂀 Sanctuaire Ankaa</title>
+  <meta charset="UTF-8" />
+  <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#000000" />
-  <link rel="stylesheet" href="/static/style.css?v=10s" />
+  <link rel="icon" href="/static/assets/favicon.ico" />
+  <link rel="stylesheet" href="/static/style.css" />
 </head>
 <body>
+  <!-- Fond cosmique -->
+  <div class="fond-cosmique"></div>
 
-  <header id="en-tete">
-    <h1 class="titre-sacre">𓂀 LE CERCLE DES VEILLEURS 𓂀</h1>
-    <p class="sous-titre">« Laisse le Verbe illuminer ton chemin. »</p>
-    <button id="bouton-sanctuaire" aria-label="Ouvrir le sanctuaire" title="Ouvrir le sanctuaire">☥</button>
-  </header>
+  <!-- Musique sacrée -->
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3" preload="auto" loop></audio>
 
-  <div id="aura-ankaa" aria-hidden="true"></div>
-  <div class="oeil-centre" aria-hidden="true"></div>
+  <!-- Lecteur TTS -->
+  <audio id="tts-player" preload="auto" style="display:none;"></audio>
 
-  <nav class="stack-gauche" aria-label="Actions rapides">
-    <button id="btn-mode-mini" class="rond" title="Choisir le mode" aria-label="Choisir le mode">𓁹</button>
-    <button id="btn-veille-mini" class="rond" title="Souffle sacré" aria-label="Souffle sacré">🌬️</button>
-    <button id="btn-vocal" class="rond" title="Mode vocal" aria-label="Mode vocal">🎤</button>
-  </nav>
+  <!-- Bouton Sanctuaire (haut droite) -->
+  <div id="sanctuaire-container">
+    <button id="bouton-sanctuaire" class="btn-ankh" title="Ouvrir le Sanctuaire">
+      <span class="glyph-ankh">☥</span>
+    </button>
+  </div>
 
-  <section id="papyrus-zone" aria-live="polite" aria-atomic="true">
-    <p id="papyrus-texte"></p>
-  </section>
+  <!-- Titre -->
+  <div class="titre-sacré">
+    <span class="glyph">𓇳</span><span class="glyph">𓂀</span>
+    LE CERCLE DES VEILLEURS
+    <span class="glyph">𓂀</span><span class="glyph">𓇳</span>
+  </div>
+  <div class="phrase-sacrée">« Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »</div>
 
-  <section id="zone-invocation" aria-label="Invocation">
-    <input id="verbe" type="text" inputmode="text" autocomplete="off" placeholder="* Invoque ton Verbe sacré..." disabled />
-    <button id="btn-verbe" aria-label="Invoquer" disabled>𓂀</button>
-  </section>
+  <!-- Œil & aura -->
+  <div class="oeil-centre">
+    <img src="/static/assets/oeil_orus_ailes.png" id="oeil-anim" alt="Œil d'Horus avec ailes" />
+    <div id="aura-ankaa" class="aura-anim"></div>
+  </div>
 
-  <div id="mode-overlay" class="overlay-hidden" aria-hidden="true" role="dialog" aria-modal="true">
-    <div class="overlay-card">
-      <h3>Choisis ton mode</h3>
-      <div class="mode-grid">
-        <button class="mode-option" data-mode="sentinelle8">Sentinelle8</button>
-        <button class="mode-option" data-mode="dragosly23">Dragosly23</button>
-        <button class="mode-option" data-mode="invite">Invité</button>
-        <button class="mode-option" data-mode="verbe">Verbe Sacré</button>
+  <!-- Papyrus -->
+  <div id="papyrus-zone" class="papyrus-cercle" style="display:none;">
+    <span id="papyrus-texte"></span>
+  </div>
+
+  <!-- Zone d’invocation (bas centre) -->
+  <div id="zone-invocation" class="zone-chat" style="display:none;">
+    <input type="text" id="verbe" class="champ-verbe" placeholder="✶ Invoque ton Verbe sacré…" />
+    <button id="btn-verbe" title="Invoquer">𓂀</button>
+  </div>
+
+  <!-- Points sacrés -->
+  <div id="points-sacrés"><span>.</span><span>.</span><span>.</span></div>
+
+  <!-- Souffle sacré (bas droite) -->
+  <button id="btn-veille-mini" title="Activer le Souffle sacré">𓆱</button>
+
+  <!-- ☥ Mini (haut gauche) : réouverture choix de mode -->
+  <div id="mode-selector-mini">
+    <button id="btn-mode-mini" title="Choisir un mode">𓁹</button>
+  </div>
+
+  <!-- Overlay de sélection de mode -->
+  <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
+    <div class="overlay-backdrop"></div>
+    <div class="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="mode-title">
+      <div class="overlay-head">
+        <span class="ankh">☥</span>
+        <h2 id="mode-title">Choisis ton Mode sacré</h2>
+        <span class="ankh">☥</span>
       </div>
+      <div class="mode-grid">
+        <button class="mode-option" data-mode="sentinelle8"><span class="mode-sign">𓂀</span><span class="mode-name">Sentinelle8</span></button>
+        <button class="mode-option" data-mode="dragosly23"><span class="mode-sign">𓋹</span><span class="mode-name">Dragosly23</span></button>
+        <button class="mode-option" data-mode="invite"><span class="mode-sign">𓏏</span><span class="mode-name">Invité</span></button>
+        <button class="mode-option" data-mode="verbe"><span class="mode-sign">𓎼</span><span class="mode-name">Verbe Sacré</span></button>
+      </div>
+      <p class="overlay-note">Aucun mode n’est présélectionné. Choisis d’abord ton chemin.</p>
     </div>
   </div>
 
-  <audio id="tts-player" preload="none"></audio>
-  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3" preload="metadata" loop></audio>
+  <!-- SFX (formats .mp3 existants chez toi) -->
+  <audio id="sfx-portal-open"  src="/static/assets/portal_open.mp3"  preload="auto"></audio>
+  <audio id="sfx-portal-close" src="/static/assets/portal_close.mp3" preload="auto"></audio>
+  <audio id="sfx-select"       src="/static/assets/mode_select.mp3"  preload="auto"></audio>
+  <audio id="sfx-click"        src="/static/assets/ui_click.mp3"     preload="auto"></audio>
 
-  <script src="/static/script.js?v=10s" defer></script>
+  <script src="/static/script.js"></script>
 </body>
 </html>

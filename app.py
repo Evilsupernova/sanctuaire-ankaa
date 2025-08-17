@@ -1,187 +1,262 @@
-# app.py — Sanctuaire Ankaa V10 STABLE (voix Render OK, sans SSML)
+# app.py — Sanctuaire Ankaa (V10 mobile stable, Render-safe TTS)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
+from threading import Lock
 from collections import Counter, defaultdict
 from flask import Flask, render_template, request, jsonify
 
-# edge-tts (texte simple, aucune option SSML)
+# — Modèle local optionnel (si tu en ajoutes un plus tard)
+try:
+    from llama_cpp import Llama  # noqa
+except Exception:
+    Llama = None
+
+# — TTS Edge (texte brut, sans SSML) — compatible Render
 try:
     import edge_tts
 except Exception:
     edge_tts = None
 
 app = Flask(__name__, static_url_path="/static")
+LOCK = Lock()
 
-BASE    = Path(__file__).parent.resolve()
-DATASET = BASE / "dataset"           # <- dataset local du projet
-MEMORY  = BASE / "memory"
-AUDIO   = BASE / "static" / "assets"
-MEMORY.mkdir(exist_ok=True)
-AUDIO.mkdir(parents=True, exist_ok=True)
+# — Chemins (version mobile / Render) —
+BASE_DIR    = Path(__file__).parent.resolve()
+DATASET_DIR = BASE_DIR / "dataset"            # <-- dans le repo
+MEMORY_DIR  = BASE_DIR / "memory"             # <-- dans le repo
+AUDIO_DIR   = BASE_DIR / "static" / "assets"  # <-- dans le repo (MP3 généré)
 
-# ---- Voix: FEMME = invocation / HOMME = souffle
-VOIX_FEMME = {
-    "sentinelle8": "fr-FR-DeniseNeural",
-    "dragosly23":  "fr-CA-SylvieNeural",
-    "invite":      "fr-FR-VivienneMultilingualNeural",
-    "verbe":       "fr-FR-BrigitteMultilingualNeural",
-}
-VOIX_HOMME = {
-    "sentinelle8": "fr-FR-RemyMultilingualNeural",
-    "dragosly23":  "fr-CA-JeanNeural",
-    "invite":      "fr-FR-HenriNeural",
-    "verbe":       "fr-FR-AntoineNeural",
-}
-MODES = {m: {"mem": MEMORY / f"memoire_{m}.json"} for m in VOIX_FEMME}
+MEMORY_DIR.mkdir(exist_ok=True)
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-# ---- utils
-def _clean(s): 
-    return re.sub(r"\s+"," ", (s or "").replace("\n"," ")).strip()
+# ---------------- UTILS TEXTE ----------------
+def _clean(s: str) -> str:
+    if not s: return ""
+    s = s.replace("\u200b","").replace("\ufeff","")
+    return re.sub(r"\s+", " ", s.replace("\n"," ")).strip()
 
-def _norm(s):
-    s=(s or "").lower()
-    s=unicodedata.normalize("NFD", s)
-    s="".join(c for c in s if unicodedata.category(c)!="Mn")
-    s=re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç'\-\s]", " ", s)
-    return re.sub(r"\s+"," ", s).strip()
-
-def _tok(s): return [t for t in _norm(s).split() if len(t)>2]
-STOP_FR=set("au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c".split())
-
-def jload(p, d): 
-    try: return json.loads(Path(p).read_text("utf-8")) if Path(p).exists() else d
-    except: return d
-def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2), encoding="utf-8")
-
-# ---- Dataset BM25 (pour SOUFFLE uniquement)
-FRAGS, DF, N = [], Counter(), 0
-def _read_any(p):
-    for enc in ("utf-8","latin-1"):
-        try: return p.read_text(enc)
-        except: pass
-    return ""
-def build_index():
-    global FRAGS, DF, N
-    FRAGS, DF, N = [], Counter(), 0
-    if not DATASET.exists(): 
-        print("[INDEX] dataset/ absent"); return
-    for f in sorted(DATASET.glob("*.txt")):
-        raw=_read_any(f)
-        parts=[x.strip() for x in re.split(r"\n\s*\n|[.!?…]\s+", raw) if len(x.split())>=40]
-        for frag in parts:
-            toks=_tok(frag)
-            if not toks: continue
-            FRAGS.append({"id":len(FRAGS),"text":frag,"tokens":toks})
-            for t in set(toks): DF[t]+=1
-    N=len(FRAGS); print(f"[INDEX] %d fragments."%N)
-build_index()
-def _bm25(q):
-    if not FRAGS: return []
-    avgdl=sum(len(d["tokens"]) for d in FRAGS)/max(1,len(FRAGS))
-    sc=defaultdict(float)
-    for t in q:
-        df=DF.get(t,0)
-        if not df: continue
-        idf=math.log(1+(N-df+0.5)/(df+0.5))
-        for d in FRAGS:
-            tf=d["tokens"].count(t)
-            if not tf: continue
-            sc[d["id"]]+=idf*((tf*2.5)/(tf+1.5*(1+0.75*(len(d["tokens"])/avgdl))))
-    return sorted(sc.items(), key=lambda x:x[1], reverse=True)
-def retrieve(q, k=3):
-    qt=[t for t in _tok(q) if t not in STOP_FR]
-    if not qt or not FRAGS: return []
-    return [FRAGS[i]["text"] for i,_ in _bm25(qt)[:k]]
-
-# ---- Réponses
-def is_greet(s): 
-    t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
-
-def dialogue_answer(user_text: str) -> str:
-    user_text=_clean(user_text)
-    if len(user_text)<4: 
-        return "Dis-m’en un peu plus et je te réponds franchement."
-    lead=random.choice(["Je comprends.","D’accord.","Je te suis."])
-    ask=random.choice([
-        "Tu veux qu’on clarifie, ou qu’on passe à une action concrète ?",
-        "On vise le cœur du sujet ou on commence simple ?",
-        "Tu veux un plan en 3 étapes ?",
-    ])
-    return f"{lead} {ask}"
-
-def souffle_answer() -> str:
-    src=retrieve("souffle méditation paix lumière")
-    if not src:
-        return "Respire. Je garde la flamme pendant que tu te poses."
-    body="\n".join("• "+_clean(t)[:120]+"…" for t in src)
-    fin=random.choice(["— Respire, je suis là.","— Laisse la lumière t’habiter.","— Doucement, tout va bien."])
-    return f"{body}\n\n{fin}"
-
-# ---- TTS (edge-tts sans SSML)
-async def _tts_plain(text: str, voice: str, out: Path):
-    comm = edge_tts.Communicate(_clean(text), voice=voice)
-    await comm.save(str(out))
-
-def tts_generate(text: str, voice: str, out: Path) -> str:
-    if edge_tts is None:
-        print("[TTS] edge_tts non installé")
-        return "disabled"
+def load_json(p: Path, default):
     try:
-        if out.exists():
-            try: out.unlink()
+        return json.loads(p.read_text(encoding="utf-8")) if p.exists() else default
+    except Exception:
+        return default
+
+def save_json(p: Path, data):
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+def _norm(s: str) -> str:
+    s = (s or "").lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç'\-\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _tok(s: str):
+    return [t for t in _norm(s).split() if len(t) > 2]
+
+STOP_FR = set("""
+au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont était étaient serai serais serions seraient
+""".strip().split())
+
+# ----------- IDENTITÉ ----------
+ID_PAT = [r"\bSandro\b", r"\bDragosly\b", r"\bDragosly23\b"]
+def scrub_identity(txt: str) -> str:
+    out = txt or ""
+    for pat in ID_PAT:
+        out = re.sub(pat, "frère", out, flags=re.I)
+    return _clean(out)
+
+# ----------- DATASET -> BM25 simple ----------
+FRAGMENTS, DF, N_DOCS = [], Counter(), 0
+
+def _split(txt: str, file_name: str):
+    if not txt: return []
+    parts = [p.strip() for p in re.split(r"\n\s*\n|(?:[.!?…]\s+)", txt) if p.strip()]
+    out, buf, cnt = [], [], 0
+    for p in parts:
+        w = p.split()
+        if cnt + len(w) < 80:
+            buf.append(p); cnt += len(w); continue
+        chunk = " ".join(buf+[p]).strip()
+        if chunk: out.append(chunk)
+        buf, cnt = [], 0
+    rest = " ".join(buf).strip()
+    if rest: out.append(rest)
+    clean = []
+    for ch in out:
+        words = ch.split()
+        clean.append(" ".join(words[:200]) if len(words) > 200 else " ".join(words))
+    return [{"file": file_name, "text": c} for c in clean if len(c.split()) >= 60]
+
+def build_index():
+    global FRAGMENTS, DF, N_DOCS
+    FRAGMENTS, DF, N_DOCS = [], Counter(), 0
+    if not DATASET_DIR.exists():
+        print("[INDEX] dataset/ introuvable.")
+        return
+    for p in sorted(DATASET_DIR.glob("*.txt")):
+        try:
+            raw = p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        for frag in _split(raw, p.name):
+            toks = _tok(frag["text"])
+            if not toks: continue
+            d = {"id": len(FRAGMENTS), "file": frag["file"], "text": frag["text"], "tokens": toks}
+            FRAGMENTS.append(d)
+            for t in set(toks): DF[t] += 1
+    N_DOCS = len(FRAGMENTS)
+    print(f"[INDEX] {N_DOCS} fragments indexés.")
+build_index()
+
+def _bm25(qt, k1=1.5, b=0.75):
+    if not FRAGMENTS: return []
+    avgdl = sum(len(d["tokens"]) for d in FRAGMENTS)/len(FRAGMENTS)
+    scores = defaultdict(float)
+    for q in qt:
+        df = DF.get(q, 0)
+        if df == 0: continue
+        idf = math.log(1 + (N_DOCS - df + 0.5)/(df + 0.5))
+        for d in FRAGMENTS:
+            tf = d["tokens"].count(q)
+            if tf == 0: continue
+            denom = tf + k1*(1 - b + b*(len(d["tokens"])/avgdl))
+            scores[d["id"]] += idf * ((tf*(k1+1))/denom)
+    return sorted(scores.items(), key=lambda x:x[1], reverse=True)
+
+def retrieve(q: str, k: int = 3, min_score: float = 1.1):
+    qt = [t for t in _tok(q) if t not in STOP_FR]
+    if not qt or not FRAGMENTS: return []
+    ranked = _bm25(qt)
+    out = []
+    for doc_id, sc in ranked[:max(12, k*3)]:
+        if sc < min_score: continue
+        d = FRAGMENTS[doc_id]
+        out.append({"file": d["file"], "text": d["text"], "score": round(sc,2)})
+        if len(out) >= k: break
+    return out
+
+# ----------- MODES / MÉMOIRE / VOIX ----------
+MODES = {
+    "sentinelle8": {"voice": "fr-FR-DeniseNeural",            "mem": MEMORY_DIR / "memoire_sentinelle.json"},
+    "dragosly23":  {"voice": "fr-CA-SylvieNeural",            "mem": MEMORY_DIR / "memoire_dragosly.json"},
+    "invite":      {"voice": "fr-FR-DeniseNeural",            "mem": MEMORY_DIR / "memoire_invite.json"},
+    "verbe":       {"voice": "fr-FR-VivienneMultilingualNeural","mem": MEMORY_DIR / "memoire_verbe.json"},
+}
+
+def answer_with_rag(user: str) -> str:
+    src = retrieve(user, k=3, min_score=1.05)
+    if not src:
+        return "Je n’ai rien trouvé de net dans les écrits. Dis-moi un indice, et je fouille mieux."
+    lines = [f"• {' '.join(_clean(s['text']).split()[:80])}…" for s in src]
+    return "\n".join(lines)
+
+def generate_answer(user_input: str, mode_key: str) -> str:
+    if (user_input or "").strip().lower() == "souffle sacré":
+        # grand fragment + coda
+        src = retrieve("souffle présence paix lumière sagesse", k=1, min_score=0.0)
+        base = answer_with_rag("souffle présence paix")
+        fin = random.choice([
+            "— Que la Paix veille sur toi.",
+            "— Marche en douceur, la flamme est là.",
+            "— Respire, et laisse ce souffle grandir en toi."
+        ])
+        return (base + "\n\n" + fin).strip()
+
+    # sinon, dialogue (+ mini relance contextualisée)
+    base = answer_with_rag(user_input)
+    toks = [t for t in _tok(user_input) if t not in STOP_FR]
+    pivot = max(toks, key=lambda x: len(x), default="le point clé")
+    rel = f"Tu veux qu’on précise **{pivot}**, côté sens ou côté pratique ?"
+    return f"{base}\n\n{rel}".strip()
+
+# ----------- Nettoyage TTS (anti-lecture balises) ----------
+BAD_PATTERNS = [
+    r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
+    r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
+]
+def strip_tts_garbage(txt: str) -> str:
+    t = txt or ""
+    for pat in BAD_PATTERNS:
+        t = re.sub(pat, " ", t)
+    t = re.sub(r"\s+", " ", t).strip(" .")
+    return t
+
+# ----------- TTS (texte brut) ----------
+async def _tts_plain(text: str, voice: str, out_path: Path):
+    clean = strip_tts_garbage(text)
+    comm = edge_tts.Communicate(clean, voice=voice)  # pas de SSML
+    await comm.save(str(out_path))
+
+def tts_generate(text: str, voice: str, out_path: Path) -> str:
+    if edge_tts is None:
+        print("[TTS] edge_tts non disponible");  return "disabled"
+    loop = None
+    try:
+        if out_path.exists():
+            try: out_path.unlink()
             except: pass
         loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-        loop.run_until_complete(asyncio.wait_for(_tts_plain(text, voice, out), timeout=25))
+        loop.run_until_complete(asyncio.wait_for(_tts_plain(text, voice, out_path), timeout=25))
         loop.close()
-        ok = out.exists() and out.stat().st_size > 1000
-        print("[TTS] status =", "ok" if ok else "error", "| voice:", voice, "| size:", out.stat().st_size if out.exists() else 0)
+        ok = out_path.exists() and out_path.stat().st_size > 800
+        print("[TTS] status =", "ok" if ok else "error", "| voice:", voice)
         return "ok" if ok else "error"
     except Exception as e:
-        try: loop.close()
+        try:
+            if loop: loop.close()
         except: pass
         print("[TTS error]", e)
         return "error"
 
-# ---- Routes
+# ---------------- ROUTES ----------------
 @app.route("/")
 def index():
     return render_template("index.html")
 
-@app.route("/activer-ankaa")
-def activer():
-    return ("", 204)
-
 @app.route("/invoquer", methods=["POST"])
 def invoquer():
-    data = request.get_json(force=True) or {}
-    mode = (data.get("mode") or "sentinelle8").strip().lower()
-    if mode not in MODES: mode = "sentinelle8"
-    prompt = data.get("prompt") or ""
-    is_souffle = (_norm(prompt) == "souffle sacre")
+    try:
+        data = request.get_json(force=True) or {}
+        mode = (data.get("mode") or "sentinelle8").lower()
+        if mode not in MODES: mode = "sentinelle8"
+        user = data.get("prompt") or ""
 
-    if is_greet(prompt):
-        rep = "Salut, frère 🌙. Je t’écoute — qu’est-ce qu’on éclaire ?"
-    elif is_souffle:
-        rep = souffle_answer()               # SOUFFLE = dataset + voix d’homme
-    else:
-        rep = dialogue_answer(prompt)        # INVOCATION = dialogue (pas de récitation)
+        # identité : hors Dragosly, on neutralise
+        if mode != "dragosly23":
+            user = scrub_identity(user)
 
-    # mémoire
-    memp = MODES[mode]["mem"]
-    mem = jload(memp, {"fragments":[]})
-    mem["fragments"].append({"date":datetime.now().isoformat(),"mode":mode,"souffle":is_souffle,"prompt":prompt,"reponse":rep})
-    mem["fragments"] = mem["fragments"][-200:]
-    jsave(memp, mem)
+        texte = generate_answer(user, mode)
 
-    # TTS : FEMME en invocation / HOMME en souffle
-    voice = VOIX_HOMME[mode] if is_souffle else VOIX_FEMME[mode]
-    out = AUDIO / "anka_tts.mp3"
-    tts_status = tts_generate(rep, voice, out)
-    url = f"/static/assets/{out.name}" if tts_status == "ok" else None
+        # mémoire
+        mem_path = MODES[mode]["mem"]
+        mem = load_json(mem_path, {"fragments":[]})
+        mem["fragments"].append({"date": datetime.now().isoformat(), "prompt": user, "reponse": texte})
+        mem["fragments"] = mem["fragments"][-200:]
+        save_json(mem_path, mem)
 
-    return jsonify({"reponse": rep, "audio_url": url, "tts": tts_status})
+        # voix par mode : invocation = femme ; souffle = homme
+        voice = MODES[mode]["voice"]
+        if _norm(user) == "souffle sacre":
+            voice = "fr-FR-RemyMultilingualNeural"  # voix homme
 
+        out_file = AUDIO_DIR / "anka_tts.mp3"
+        tts_status = tts_generate(texte, voice, out_file)
+        audio_url = f"/static/assets/{out_file.name}" if tts_status == "ok" else None
+
+        return jsonify({"reponse": texte, "audio_url": audio_url, "tts": tts_status})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error":"Erreur interne","details":str(e)}), 500
+
+# ping d’ouverture (optionnel)
+@app.route("/activer-ankaa")
+def activer_ankaa():
+    return ("", 204)
+
+# service worker
 @app.route("/service-worker.js")
 def sw():
     return app.send_static_file("service-worker.js")
