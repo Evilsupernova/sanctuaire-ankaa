@@ -1,9 +1,9 @@
-// Sanctuaire Ankaa — mobile Render-safe (respect V7)
+// Sanctuaire Ankaa — V10 mobile stable (Render-safe)
 document.addEventListener('DOMContentLoaded', () => {
   // Purge du mode à chaque rechargement (cahier des charges)
   try { localStorage.removeItem('mode'); } catch(_) {}
 
-  // Réfs
+  // Références
   const audioBG   = document.getElementById('musique-sacree');
   const tts       = document.getElementById('tts-player');
   const btnSanct  = document.getElementById('bouton-sanctuaire');
@@ -25,7 +25,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
   const play = a => { try { a && (a.currentTime = 0); a && a.play().catch(()=>{}); } catch(_){} };
 
-  // iOS : "unlock" audio (musique + TTS) dès la 1ère interaction
+  // iOS : "unlock" audio dès la 1ère interaction
   (function unlockIOS(){
     function arm(){
       [audioBG, tts, sfxOpen, sfxClose, sfxSelect, sfxClick].forEach(a=>{
@@ -41,7 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('click', arm, {once:true, passive:true});
   })();
 
-  // État initial : sanctuaire fermé, input/𓂀 bloqués tant qu’aucun mode
+  // État initial
   if (zoneChat)  zoneChat.style.display = 'none';
   if (input)     input.disabled = true;
   if (btnVerbe)  btnVerbe.disabled = true;
@@ -64,19 +64,19 @@ document.addEventListener('DOMContentLoaded', () => {
       play(sfxClose);
     }
   };
-  window.overlay = overlay; // debug
+  // Fallback si CSS n'est pas chargé : cacher l'overlay
+  if (overlayEl && !overlayEl.classList.contains('overlay-hidden')) {
+    overlayEl.style.display = 'none';
+    overlayEl.classList.add('overlay-hidden');
+    overlayEl.removeAttribute('style');
+  }
 
   // Ouverture du Sanctuaire
   if (btnSanct) btnSanct.addEventListener('click', () => {
-    // musique
     if (audioBG) audioBG.play().catch(()=>{});
-    // montre la zone d’invocation
     if (zoneChat) zoneChat.style.display = 'flex';
-    // cache le bouton sanctuaire
     btnSanct.style.display = 'none';
-    // ouverture overlay: il faut choisir un mode
     overlay.open({blockInput:true});
-    // ping serveur
     fetch('/activer-ankaa').catch(()=>{});
   });
 
@@ -93,7 +93,7 @@ document.addEventListener('DOMContentLoaded', () => {
     setMode(key);
   }));
 
-  // Bouton ☥ (haut gauche) pour rouvrir le choix de mode
+  // Bouton ☥ haut-gauche : rouvrir l’overlay
   if (btnMode) btnMode.addEventListener('click', () => overlay.open({blockInput:false}));
 
   // ESC ferme l’overlay
@@ -130,7 +130,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // Garde-fou : pas de mode => overlay
+  // Garde-fou
   function getMode(){ try{ return localStorage.getItem('mode'); }catch(_){ return null; } }
 
   // Envoi invocation (𓂀)
@@ -174,7 +174,7 @@ document.addEventListener('DOMContentLoaded', () => {
     input.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyer(e); });
   }
 
-  // Souffle sacré (𓆱) — voix homme, fragments dataset
+  // Souffle sacré (𓆱)
   let souffleTimer = null, souffleEnCours = false;
   if (btnSouff){
     btnSouff.addEventListener('click', () => {
