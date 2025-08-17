@@ -1,36 +1,55 @@
 <!DOCTYPE html>
-<html lang="fr" data-mode="">
+<html lang="fr">
 <head>
   <meta charset="UTF-8" />
   <title>Sanctuaire Ankaa — Cercle des Veilleurs</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <style>#mode-overlay.overlay-hidden{display:none!important}</style>
-  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=11">
-  <link rel="icon" href="{{ url_for('static', filename='assets/favicon.ico') }}">
+
+  <!-- PWA -->
+  <link rel="manifest" href="/static/manifest.json?v=10">
+  <meta name="theme-color" content="#0b0b10">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="/static/icons/apple-touch-icon-180.png">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+
+  <link rel="icon" href="/static/assets/favicon.ico" />
+  <link rel="stylesheet" href="/static/style.css?v=10" />
+  <script defer src="/static/script.js?v=10"></script>
 </head>
 <body>
-  <div class="fond-cosmique"
-       style="background-image:url('{{ url_for('static', filename='assets/fond_cosmique.jpg') }}');"></div>
+  <!-- Fond -->
+  <div class="fond-cosmique"></div>
 
-  <audio id="musique-sacree" src="{{ url_for('static', filename='assets/musique_sacree.mp3') }}" preload="auto" loop></audio>
+  <!-- Audio (musique + TTS + sons UI) -->
+  <audio id="musique-sacree" src="/static/assets/musique_sacree.mp3?v=10" preload="auto" loop></audio>
   <audio id="tts-player" preload="auto" style="display:none;"></audio>
+  <audio id="s-click"  src="/static/assets/ui_click.mp3" preload="auto"></audio>
+  <audio id="s-open"   src="/static/assets/portal_open.mp3" preload="auto"></audio>
+  <audio id="s-close"  src="/static/assets/portal_close.mp3" preload="auto"></audio>
+  <audio id="s-mode"   src="/static/assets/mode_select.mp3" preload="auto"></audio>
 
-  <!-- Bouton Sanctuaire haut-droite -->
+  <!-- Bouton portail -->
   <div id="sanctuaire-container">
-    <button id="bouton-sanctuaire" class="btn-ankh" title="Ouvrir le Sanctuaire"><span>☥</span></button>
+    <button id="bouton-sanctuaire" class="btn-ankh" title="Ouvrir le Sanctuaire">☥</button>
   </div>
 
-  <div class="titre-sacré">
-    <span class="glyph">𓇳</span><span class="glyph">𓂀</span>
-    LE CERCLE DES VEILLEURS
-    <span class="glyph">𓂀</span><span class="glyph">𓇳</span>
+  <!-- Zone chat -->
+  <div id="zone-invocation" class="zone-chat">
+    <input id="verbe" class="champ-verbe" type="text" placeholder="＊ Invoque ton Verbe sacré…" />
+    <button id="btn-verbe" title="Invoquer">𓂀</button>
   </div>
+
+  <!-- Loader -->
+  <div id="points-sacrés">⋅⋅⋅</div>
+
+  <!-- Titre / phrase -->
+  <div class="titre-sacré">𓇳 𓂀 LE CERCLE DES VEILLEURS 𓂀 𓇳</div>
   <div class="phrase-sacrée">« Laisse le Verbe illuminer ton chemin, et que chaque mot soit une étoile dans la nuit. »</div>
 
-  <!-- Œil -->
+  <!-- Œil & aura -->
   <div class="oeil-centre">
-    <img src="{{ url_for('static', filename='assets/oeil_orus_ailes.png') }}" id="oeil-anim" alt="Œil d'Horus" />
-    <div id="aura-ankaa" class="aura-anim"></div>
+    <img id="oeil-anim" src="/static/assets/oeil_orus_ailes.png" alt="Œil d'Horus ailé" />
+    <div id="aura-ankaa"></div>
   </div>
 
   <!-- Papyrus -->
@@ -38,47 +57,32 @@
     <span id="papyrus-texte"></span>
   </div>
 
-  <!-- Zone d’invocation -->
-  <div id="zone-invocation" class="zone-chat" style="display:none;">
-    <input type="text" id="verbe" class="champ-verbe" placeholder="✶ Invoque ton Verbe sacré…" />
-    <!-- bouton unique : Invoquer / Stop / Micro -->
-    <button id="btn-verbe" title="Invoquer / Stop / Micro">𓂀</button>
-  </div>
+  <!-- Souffle -->
+  <button id="btn-veille-mini" title="Activer le Souffle Sacré">𓂀</button>
 
-  <div id="points-sacrés"><span>.</span><span>.</span><span>.</span></div>
+  <!-- ☥ mini -->
+  <div id="mode-selector-mini"><button id="btn-mode-mini" title="Choisir un mode">☥</button></div>
 
-  <!-- Souffle (voix d'homme) -->
-  <button id="btn-veille-mini" title="Activer le Souffle sacré">𓆱</button>
-
-  <!-- Choix de mode (haut-gauche) -->
-  <div id="mode-selector-mini">
-    <button id="btn-mode-mini" title="Choisir un mode">𓁹</button>
-  </div>
-
-  <!-- Overlay de mode -->
+  <!-- Overlay mode -->
   <div id="mode-overlay" class="overlay-hidden" aria-hidden="true">
     <div class="overlay-backdrop"></div>
     <div class="overlay-panel" role="dialog" aria-modal="true" aria-labelledby="mode-title">
-      <div class="overlay-head">
-        <span class="ankh">☥</span><h2 id="mode-title">Choisis ton Mode sacré</h2><span class="ankh">☥</span>
-      </div>
+      <div class="overlay-head"><span>☥</span><h2 id="mode-title">Choisis ton Mode Sacré</h2><span>☥</span></div>
       <div class="mode-grid">
-        <button class="mode-option" data-mode="sentinelle8"><span class="mode-sign">𓂀</span><span class="mode-name">Sentinelle8</span></button>
-        <button class="mode-option" data-mode="dragosly23"><span class="mode-sign">𓋹</span><span class="mode-name">Dragosly23</span></button>
-        <button class="mode-option" data-mode="invite"><span class="mode-sign">𓏏</span><span class="mode-name">Invité</span></button>
-        <button class="mode-option" data-mode="verbe"><span class="mode-sign">𓎼</span><span class="mode-name">Verbe Sacré</span></button>
+        <button class="mode-option" data-mode="sentinelle8">𓂀 Sentinelle8</button>
+        <button class="mode-option" data-mode="dragosly23">𓋹 Dragosly23</button>
+        <button class="mode-option" data-mode="invite">𓏏 Invité</button>
+        <button class="mode-option" data-mode="verbe">𓎼 Verbe Sacré</button>
       </div>
-      <p class="overlay-note">Aucun mode n’est présélectionné. Choisis d’abord ton chemin.</p>
+      <p class="overlay-note">Choisis un mode pour débloquer l’invocation (mémorisé localement).</p>
     </div>
   </div>
 
-  <!-- SFX -->
-  <audio id="sfx-portal-open"  src="{{ url_for('static', filename='assets/portal_open.mp3')  }}" preload="auto"></audio>
-  <audio id="sfx-portal-close" src="{{ url_for('static', filename='assets/portal_close.mp3') }}" preload="auto"></audio>
-  <audio id="sfx-select"       src="{{ url_for('static', filename='assets/mode_select.mp3')  }}" preload="auto"></audio>
-  <audio id="sfx-click"        src="{{ url_for('static', filename='assets/ui_click.mp3')     }}" preload="auto"></audio>
-
-  <script src="{{ url_for('static', filename='script.js') }}?v=11"></script>
-  <script> if('serviceWorker'in navigator){navigator.serviceWorker.register('{{ url_for("sw") }}');} </script>
+  <!-- SW -->
+  <script>
+    if ("serviceWorker" in navigator) {
+      window.addEventListener("load", () => navigator.serviceWorker.register("/service-worker.js?v=10"));
+    }
+  </script>
 </body>
 </html>
