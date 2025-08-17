@@ -1,4 +1,4 @@
-# app.py — Sanctuaire Ankaa V10 (RAG complet + Souffle fragments + TTS Azure/edge + garde-fous)
+# app.py — Sanctuaire Ankaa V10 (RAG + Souffle fragments + TTS Azure/edge + UI hooks)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
@@ -10,7 +10,8 @@ try:
 except Exception:
     edge_tts = None
 
-app = Flask(__name__, static_url_path="/static", template_folder="templates")
+# NOTE: template_folder="." pour servir index.html à la racine (compatible Render)
+app = Flask(__name__, static_url_path="/static", template_folder=".")
 BASE = Path(__file__).parent.resolve()
 DATASET = BASE / "dataset"
 MEM = BASE / "memory"
@@ -46,7 +47,6 @@ def _norm(s):
     return re.sub(r"\s+"," ", s).strip()
 
 def _tok(s): return [t for t in _norm(s).split() if len(t)>2]
-
 STOP_FR = set("au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont".split())
 
 def jload(p, d):
@@ -56,11 +56,13 @@ def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2),
 
 # ---------- Index RAG ----------
 FRAGS, DF, N = [], Counter(), 0
+
 def _read_any(p):
     for enc in ("utf-8","latin-1"):
         try: return p.read_text(enc)
         except: pass
     return ""
+
 def _split(txt, name):
     if not txt: return []
     parts = [p.strip() for p in re.split(r"\n\s*\n|(?:[.!?…]\s+)", txt) if p.strip()]
@@ -77,12 +79,14 @@ def _split(txt, name):
     for ch in out:
         w=ch.split()
         clean.append(" ".join(w[:200]) if len(w)>200 else " ".join(w))
-    return [{"file":name,"text":c} for c in clean if len(c.split())>=60]
+    return [{"id":None,"file":name,"text":c} for c in clean if len(c.split())>=60]
+
 def build_index():
     global FRAGS, DF, N
     FRAGS, DF, N = [], Counter(), 0
     if not DATASET.exists():
-        print("[INDEX] dataset/ manquant"); return
+        print("[INDEX] dataset/ manquant")
+        return
     for p in sorted(DATASET.glob("*.txt")):
         raw=_read_any(p)
         if not raw: continue
@@ -92,7 +96,9 @@ def build_index():
             d={"id":len(FRAGS),"file":p.name,"text":frag["text"],"tokens":toks}
             FRAGS.append(d)
             for t in set(toks): DF[t]+=1
-    N=len(FRAGS); print(f"[INDEX] {N} fragments.")
+    N=len(FRAGS)
+    print(f"[INDEX] {N} fragments.")
+
 def _bm25(q, k1=1.5, b=0.75):
     if not FRAGS: return []
     avgdl=sum(len(d["tokens"]) for d in FRAGS)/len(FRAGS)
@@ -107,6 +113,7 @@ def _bm25(q, k1=1.5, b=0.75):
             denom=tf + k1*(1 - b + b*(len(d["tokens"])/avgdl))
             sc[d["id"]] += idf*((tf*(k1+1))/denom)
     return sorted(sc.items(), key=lambda x:x[1], reverse=True)
+
 def retrieve(q, k=3, min_score=1.02):
     qt=[t for t in _tok(q) if t not in STOP_FR]
     if not qt or not FRAGS: return []
@@ -122,40 +129,35 @@ def retrieve(q, k=3, min_score=1.02):
 # ---------- Génération ----------
 def is_greet(s):
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
+
 def greet(): return "Salut, frère 🌙. Je t’écoute — qu’est-ce qu’on éclaire ?"
 
-def compose_from_dataset(user_text, k=3):
-    """Renvoie un texte PARLABLE basé sur les meilleurs fragments du dataset."""
-    hits = retrieve(user_text, k=k)
-    if not hits:
-        return None
-    # courte synthèse + une courte citation lisible
-    bullets=[]
+def explain_from_hits(user_text, hits):
+    """Synthèse courte et parlable des meilleurs fragments."""
+    intro = "Dans tes écrits, je lis ceci :"
+    parts=[]
     for h in hits:
         frag=_clean(h["text"])
-        quote=" ".join(frag.split()[:60])
-        bullets.append(f"• {quote}…")
-    intro = "Dans tes écrits, voici ce qui résonne :"
-    outro = random.choice([
-        "Si tu veux, on peut creuser un de ces points.",
-        "Je peux détailler l’un de ces passages si tu me dis lequel t’appelle.",
-        "Dis-moi où poser la lampe, et j’ouvre le texte."
-    ])
-    return f"{intro}\n" + "\n".join(bullets) + f"\n\n{outro}"
+        snippet=" ".join(frag.split()[:60])
+        parts.append(f"— {snippet}…")
+    conclusion = "Si tu veux, je développe l’un de ces passages."
+    return f"{intro}\n" + "\n".join(parts) + f"\n\n{conclusion}"
+
+def compose_from_dataset(user_text, k=3):
+    hits = retrieve(user_text, k=k)
+    if not hits: return None
+    return explain_from_hits(user_text, hits)
 
 def pick_random_fragment():
     if not FRAGS: return None
     frag = random.choice(FRAGS)
-    text = " ".join(_clean(frag["text"]).split()[:80])
-    return text
+    return " ".join(_clean(frag['text']).split()[:80])
 
 def rag_answer_for_breath():
-    # souffle = lit un fragment du corpus, pas un conseil générique
     frag = pick_random_fragment()
     if frag:
-        return f"{frag}\n\n— Respire, je suis là."
-    # fallback si pas de dataset
-    return "Inspire par le nez, retiens une seconde, expire doucement. — La flamme veille."
+        return f"{frag}\n\n— Respire doucement ; la flamme veille."
+    return "Inspire par le nez, retiens une seconde, puis expire longuement. — La flamme veille."
 
 def dialogue_answer(user):
     user = _clean(user)
@@ -174,9 +176,8 @@ def answer(user, mode):
     if is_greet(user):
         return greet()
     if _norm(user) == "souffle sacre":
-        return rag_answer_for_breath()
-    # Par défaut → se REFERER au dataset d'abord, sinon dialogue
-    composed = compose_from_dataset(user, k=3)
+        return rag_answer_for_breath()               # Souffle = lire un fragment
+    composed = compose_from_dataset(user, k=3)       # Invocation = expliquer tes textes
     if composed:
         return composed
     return dialogue_answer(user)
@@ -197,10 +198,8 @@ def strip_tts(txt):
 def _tts_azure(text, voice, out_file):
     try:
         import azure.cognitiveservices.speech as speechsdk
-        key = os.getenv("AZURE_SPEECH_KEY")
-        region = os.getenv("AZURE_SPEECH_REGION")
-        if not key or not region:
-            return "disabled"
+        key=os.getenv("AZURE_SPEECH_KEY"); region=os.getenv("AZURE_SPEECH_REGION")
+        if not key or not region: return "disabled"
         speech_config = speechsdk.SpeechConfig(subscription=key, region=region)
         speech_config.speech_synthesis_voice_name = voice
         speech_config.set_speech_synthesis_output_format(
@@ -225,8 +224,7 @@ async def _edge_async(text, voice, rate, pitch, out_path):
     return "ok"
 
 def _tts_edge(text, voice, rate, pitch, out_file):
-    if edge_tts is None:
-        return "disabled"
+    if edge_tts is None: return "disabled"
     try:
         if out_file.exists():
             try: out_file.unlink()
@@ -243,22 +241,16 @@ def _tts_edge(text, voice, rate, pitch, out_file):
         return "error"
 
 def do_tts(text, mode, is_souffle, out_file: Path):
-    # Choix voix
     if is_souffle:
         voice = VOIX_HOMME.get(mode, "fr-FR-RemyMultilingualNeural"); rate, pitch = "-2%", "default"
     else:
         voice = VOIX_FEMME.get(mode, "fr-FR-DeniseNeural");          rate, pitch = "+2%", "default"
-
     clean = strip_tts(text) or "Silence sacré."
-
-    # 1) Azure d'abord (fiable en prod)
+    # 1) Azure prioritaire
     st = _tts_azure(clean, voice, out_file)
-    if st == "ok":
-        return "ok"
-    if st != "disabled":
-        print("[tts] Azure KO, tentative edge-tts fallback…")
-
-    # 2) Fallback edge-tts (peut 403 en datacenter, ok en local)
+    if st == "ok": return "ok"
+    if st != "disabled": print("[tts] Azure KO, tentative edge-tts…")
+    # 2) Fallback edge
     return _tts_edge(clean, voice, rate, pitch, out_file)
 
 # ---------- Routes ----------
@@ -269,6 +261,11 @@ def index():
 @app.route("/activer-ankaa", methods=["GET"])
 def activer_ankaa():
     return jsonify({"ok": True, "ts": datetime.now().isoformat()})
+
+@app.route("/reindex", methods=["POST","GET"])
+def reindex():
+    build_index()
+    return jsonify({"fragments": len(FRAGS)})
 
 @app.route("/invoquer", methods=["POST"])
 def invoquer():
@@ -292,11 +289,9 @@ def invoquer():
 
     return jsonify({"reponse":rep, "audio_url":url, "tts":ok})
 
-@app.route("/service-worker.js")
-def sw():
-    return app.send_static_file("service-worker.js")
+# Reconstruit l'index au chargement (utile avec gunicorn/Render)
+build_index()
 
+# (Mode debug local) : app.run uniquement en local
 if __name__=="__main__":
-    build_index()
     app.run(host="0.0.0.0", port=int(os.getenv("PORT",5000)), debug=True)
-

@@ -1,10 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
+  // Fix viewport mobile
   function setVh(){ const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     document.documentElement.style.setProperty('--vh', `${vh/100}px`); }
   setVh(); window.addEventListener('resize', setVh);
   window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
 
-  // iOS: déverrouille audio
+  // iOS: déverrouille audio au premier toucher
   (function unlock(){
     const ids=['musique-sacree','tts-player','s-click','s-open','s-close','s-mode'];
     const list=ids.map(id=>document.getElementById(id));
@@ -35,36 +36,31 @@ document.addEventListener('DOMContentLoaded', () => {
   const pap=document.getElementById('papyrus-zone');
   const ptxt=document.getElementById('papyrus-texte');
   const overlayEl=document.getElementById('mode-overlay');
-  const header=document.getElementById('en-tete');
 
-  // volumes — musique plus faible
-  if(bgm) bgm.volume=0.08;                 // ↓↓↓ moins fort
-  [sClick,sOpen,sClose,sMode].forEach(a=>{ if(a) a.volume=0.30; });
+  // Déplacer la rangée d’outils SOUS l’Œil (sans toucher à index.html)
+  const tools=document.getElementById('tools-column');
+  const eyeWrap=document.querySelector('.oeil-centre');
+  if(tools && eyeWrap){ eyeWrap.insertAdjacentElement('afterend', tools); }
 
-  // DUCKING: baisse la musique pendant la voix
+  // volumes de base
+  if(bgm) bgm.volume=0.15;            // musique présente
+  if(tts) tts.volume=1.0;             // voix au max
+  [sClick,sOpen,sClose,sMode].forEach(a=>{ if(a) a.volume=0.32; });
+
+  // Ducking: baisse la musique pendant la voix
   if(tts && bgm){
-    tts.addEventListener('play', ()=>{ try{ bgm.volume = 0.03; }catch{} });
-    const restore=()=>{ try{ bgm.volume = 0.08; }catch{} };
+    tts.addEventListener('play', ()=>{ try{ bgm.volume = 0.05; }catch{} });
+    const restore=()=>{ try{ bgm.volume = 0.15; }catch{} };
     tts.addEventListener('ended', restore);
     tts.addEventListener('pause', restore);
   }
-
-  // place bouton sanctuaire en haut-droite sous le titre
-  function placeTopBtn(){
-    if(!header || !btnOpen) return;
-    const b=header.getBoundingClientRect();
-    btnOpen.style.top = (Math.round(b.bottom)+8)+'px';
-    btnOpen.style.right = '12px';
-  }
-  placeTopBtn(); window.addEventListener('resize', placeTopBtn);
-  window.visualViewport && window.visualViewport.addEventListener('resize', placeTopBtn);
 
   // état initial : tout bloqué
   try{ localStorage.removeItem('mode'); }catch(_){}
   if(zone) zone.style.display='none';
   [btnGo,input].forEach(el=> el && (el.disabled=true));
 
-  // état parole fiable
+  // état TTS (parle/ne parle pas)
   let talking=false;
   if(tts){
     tts.addEventListener('play', ()=> talking=true);
@@ -83,9 +79,10 @@ document.addEventListener('DOMContentLoaded', () => {
     if(pap){ pap.style.display='none'; if(ptxt) ptxt.textContent=''; }
     btnGo && btnGo.classList.remove('active');
   }
-  function playVisu(d){ eye && eye.classList.add('playing'); aura && aura.classList.add('active');
-    setTimeout(()=>{ eye && eye.classList.remove('playing'); aura && aura.classList.remove('active'); }, Math.max(d,1200)); }
-
+  function playVisu(d){
+    eye && eye.classList.add('playing'); aura && aura.classList.add('active');
+    setTimeout(()=>{ eye && eye.classList.remove('playing'); aura && aura.classList.remove('active'); }, Math.max(d,1200));
+  }
   function showPap(text,d=2000){
     if(!pap||!ptxt) return;
     pap.style.display='flex'; ptxt.textContent=text;
@@ -127,7 +124,7 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
   });
 
-  // micro (mode vocal) — mieux géré (désactivation propre)
+  // micro (mode vocal) — désactivation propre
   let vocalMode=false, recognizing=false, recog=null;
   function initSpeech(){
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -138,38 +135,22 @@ document.addEventListener('DOMContentLoaded', () => {
       const txt = (e.results[0] && e.results[0][0] && e.results[0][0].transcript) || '';
       if(txt){ input.value = txt; btnGo.click(); }
     };
-    // ne redémarre QUE si vocalMode est encore actif ET pas de TTS en cours
-    r.onend = ()=>{
-      recognizing=false;
-      if(vocalMode && !talking){
-        try{ r.start(); recognizing=true; }catch{}
-      }
-    };
+    r.onend = ()=>{ recognizing=false; if(vocalMode && !talking){ try{ r.start(); recognizing=true; }catch{} } };
     r.onerror = ()=> recognizing=false;
     return r;
   }
   function startRecog(){
     if(!recog) recog=initSpeech();
     if(!recog){ showPap("Micro non supporté sur ce navigateur.", 2200); vocalMode=false; return; }
-    if(!recognizing){
-      try{ recog.start(); recognizing=true; }catch{}
-    }
+    if(!recognizing){ try{ recog.start(); recognizing=true; }catch{} }
   }
-  function stopRecog(){
-    try{ recog && recog.stop(); }catch{}
-    recognizing=false;
-  }
+  function stopRecog(){ try{ recog && recog.stop(); }catch{} recognizing=false; }
 
   btnVocal && btnVocal.addEventListener('click', ()=>{
     if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2200); return; }
     vocalMode=!vocalMode;
-    if(vocalMode){
-      startRecog();
-      btnVocal.classList.add('active');
-    } else {
-      stopRecog();
-      btnVocal.classList.remove('active');
-    }
+    if(vocalMode){ startRecog(); btnVocal.classList.add('active'); }
+    else { stopRecog(); btnVocal.classList.remove('active'); }
   });
 
   // suspend la reco pendant que la voix parle, puis reprend si vocalMode
@@ -178,7 +159,7 @@ document.addEventListener('DOMContentLoaded', () => {
     tts.addEventListener('ended',()=>{ if(vocalMode) startRecog(); });
   }
 
-  // INVOCATION: même bouton = Start/Stop
+  // INVOCATION
   async function envoyer(e){
     e && e.preventDefault();
     if(!sanctuaireActif){ showPap("Active d’abord le Sanctuaire ☥", 2000); return; }
