@@ -1,24 +1,22 @@
-# app.py — Sanctuaire Ankaa (Mobile V10+)
-# - Invocation : voix FEMME, dialogue
-# - Souffle    : voix HOMME, récite fragments du dataset
-# - Nettoyage anti-récitation technique pour TTS
-# - RAG FR si pas de LLM local (Render)
+# app.py — Sanctuaire Ankaa (Mobile V10 fix)
+# - Invocation: VOIX FEMME (par mode)  |  Souffle: VOIX HOMME (par mode)
+# - edge-tts sans paramètre 'ssml' (fix Render)
+# - RAG FR (BM25 simple) pour répondre humainement si pas de LLM local
+# - Route /activer-ankaa (204) pour l'ouverture
 
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, make_response
 
-# ----- TTS Edge -----
 try:
     import edge_tts
 except Exception:
     edge_tts = None
 
-# ----- (Optionnel) LLM local en dev -----
 try:
-    from llama_cpp import Llama
+    from llama_cpp import Llama  # optionnel en local
 except Exception:
     Llama = None
 
@@ -30,11 +28,12 @@ AUDIO_DIR   = BASE_DIR / "static" / "assets"
 MEMORY_DIR.mkdir(exist_ok=True)
 AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
-# ============= VOIX =============
+# ========= VOIX PAR MODE =========
+# Invocation = FEMME | Souffle = HOMME
 VOIX_FEMME = {
-    "sentinelle8": "fr-FR-DeniseNeural",
+    "sentinelle8": "fr-FR-VivienneMultilingualNeural",  # <- demandé
     "dragosly23":  "fr-CA-SylvieNeural",
-    "invite":      "fr-FR-VivienneMultilingualNeural",
+    "invite":      "fr-FR-DeniseNeural",
     "verbe":       "fr-FR-BrigitteMultilingualNeural",
 }
 VOIX_HOMME = {
@@ -43,9 +42,9 @@ VOIX_HOMME = {
     "invite":      "fr-FR-HenriNeural",
     "verbe":       "fr-FR-AntoineNeural",
 }
-MODES = { m: {"mem": MEMORY_DIR / f"memoire_{m}.json"} for m in VOIX_FEMME.keys() }
+MODES = { m: {"mem": MEMORY_DIR / f"memoire_{m}.json"} for m in VOIX_FEMME }
 
-# ============= UTILS =============
+# ========= UTILS =========
 def _clean(s: str) -> str:
     if not s: return ""
     s = s.replace("\u200b","").replace("\ufeff","")
@@ -63,8 +62,8 @@ def _tok(s: str):
     return [t for t in _norm(s).split() if len(t) > 2]
 
 STOP_FR = set("""
-au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont était étaient serai serais serions seraient
-""".strip().split())
+au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont
+""".split())
 
 def load_json(p: Path, default):
     try:
@@ -75,7 +74,7 @@ def load_json(p: Path, default):
 def save_json(p: Path, data):
     p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
-# ============= RAG (BM25) =============
+# ========= RAG (BM25 simple) =========
 FRAGMENTS, DF, N_DOCS = [], Counter(), 0
 
 def _read_any(p: Path) -> str:
@@ -92,9 +91,7 @@ def _split(txt: str, file_name: str):
         w = p.split()
         if cnt + len(w) < 80:
             buf.append(p); cnt += len(w); continue
-        chunk = " ".join(buf+[p]).strip()
-        if chunk: out.append(chunk)
-        buf, cnt = [], 0
+        out.append(" ".join(buf+[p]).strip()); buf, cnt = [], 0
     rest = " ".join(buf).strip()
     if rest: out.append(rest)
     clean = []
@@ -106,9 +103,7 @@ def _split(txt: str, file_name: str):
 def build_index():
     global FRAGMENTS, DF, N_DOCS
     FRAGMENTS, DF, N_DOCS = [], Counter(), 0
-    if not DATASET_DIR.exists():
-        print("[INDEX] dataset/ introuvable.")
-        return
+    if not DATASET_DIR.exists(): return
     for p in sorted(DATASET_DIR.glob("*.txt")):
         raw = _read_any(p)
         if not raw: continue
@@ -119,7 +114,7 @@ def build_index():
             FRAGMENTS.append(d)
             for t in set(toks): DF[t] += 1
     N_DOCS = len(FRAGMENTS)
-    print(f"[INDEX] {N_DOCS} fragments indexés.")
+build_index()
 
 def _bm25(qt, k1=1.5, b=0.75):
     if not FRAGMENTS: return []
@@ -148,12 +143,9 @@ def retrieve(q: str, k: int = 4, min_score: float = 1.02):
         if len(out) >= k: break
     return out
 
-build_index()
-
-# ============= RÉPONSES =============
+# ========= RÉPONSES =========
 def is_greeting(s: str) -> bool:
-    t = _norm(s)
-    return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
+    t = _norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 
 def human_greet() -> str:
     return "Salut, frère 🌙. Je suis là. Qu’est-ce que tu veux éclairer ?"
@@ -162,12 +154,11 @@ def answer_from_rag(user: str) -> str:
     src = retrieve(user, k=3, min_score=1.02)
     if not src:
         return "Je n’ai rien de net dans les écrits. Donne-moi un indice précis et je fouille mieux."
-    lines = [f"• {' '.join(_clean(s['text']).split()[:80])}…" for s in src]
+    lines = [f"• {' '.join(_clean(s['text']).split()[:90])}…" for s in src]
     return "\n".join(lines)
 
 def generate_answer(user_input: str, mode_key: str) -> str:
-    if is_greeting(user_input):
-        return human_greet()
+    if is_greeting(user_input): return human_greet()
     if _norm(user_input) == "souffle sacre":
         base = answer_from_rag("souffle méditation paix respiration calme")
         fin = random.choice([
@@ -181,10 +172,8 @@ def generate_answer(user_input: str, mode_key: str) -> str:
     if Llama is not None and os.getenv("ANKAA_USE_LOCAL_LLM") == "1":
         try:
             llm = Llama(model_path="models/mistral.gguf", n_ctx=4096, n_threads=4, verbose=False)
-            prompt = (
-                "Réponds en français, clair et humain, sans balises ni technicalités.\n"
-                f"Question: {user_input}\nRéponse:"
-            )
+            prompt = ("Réponds en français, clair et humain.\n"
+                      f"Question: {user_input}\nRéponse:")
             res = llm.create_completion(prompt=prompt, max_tokens=512, temperature=0.8, top_p=0.95)
             txt = (res.get("choices",[{}])[0].get("text","") or "").strip()
         except Exception:
@@ -193,10 +182,10 @@ def generate_answer(user_input: str, mode_key: str) -> str:
         base = answer_from_rag(user_input)
         toks = [t for t in _tok(user_input) if t not in STOP_FR]
         pivot = max(toks, key=lambda x: len(x), default="le point clé")
-        txt = f"{base}\n\nOn creuse **{pivot}** ou tu préfères une action concrète ?"
+        txt = f"{base}\n\nOn creuse **{pivot}** ou tu veux une action directe ?"
     return txt
 
-# ============= ANTI-LECTURE TTS =============
+# ========= ANTI-LECTURE TTS =========
 BAD_PATTERNS = [
     r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
     r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
@@ -205,63 +194,47 @@ BAD_PATTERNS = [
 ]
 def strip_tts_garbage(txt: str) -> str:
     t = txt or ""
-    for pat in BAD_PATTERNS:
-        t = re.sub(pat, " ", t)
-    t = re.sub(r"\s+", " ", t).strip(" .")
-    return t
+    for pat in BAD_PATTERNS: t = re.sub(pat, " ", t)
+    return re.sub(r"\s+", " ", t).strip(" .")
 
-# ============= TTS (SSML) — *** FIX : passer voice=... à edge_tts.Communicate ***
-def build_ssml(text: str, voice: str, style: str, rate: str, pitch: str) -> str:
-    s = strip_tts_garbage(text).replace("..","…")
-    return f"""
-<speak version="1.0" xml:lang="fr-FR" xmlns:mstts="https://www.w3.org/2001/mstts">
-  <voice name="{voice}">
-    <mstts:express-as style="{style}" styledegree="1.0">
-      <prosody rate="{rate}" pitch="{pitch}">
-        <break time="220ms"/>{s}<break time="260ms"/>
-      </prosody>
-    </mstts:express-as>
-  </voice>
-</speak>
-""".strip()
-
-async def _tts_async(ssml: str, voice: str, out_file: Path):
+# ========= TTS (edge-tts, sans ssml) =========
+async def _tts_async(text: str, voice: str, rate: str, pitch: str, out_file: Path):
     if edge_tts is None: return "disabled"
-    # *** IMPORTANT *** : passer voice=voice + ssml=True
-    comm = edge_tts.Communicate(ssml, voice=voice, ssml=True)
-    await comm.save(str(out_file))
-    return "ok"
+    comm = edge_tts.Communicate(text, voice=voice, rate=rate, pitch=pitch)
+    await comm.save(str(out_file)); return "ok"
 
 def do_tts(text: str, mode_key: str, is_souffle: bool, out_file: Path) -> str:
-    if edge_tts is None:
-        return "disabled"
+    if edge_tts is None: return "disabled"
     try:
         if is_souffle:
             voice = VOIX_HOMME.get(mode_key, "fr-FR-RemyMultilingualNeural")
-            style, rate, pitch = ("narration-relaxed", "-2%", "-1st")
+            rate, pitch = "-2%", "-1st"
         else:
-            voice = VOIX_FEMME.get(mode_key, "fr-FR-DeniseNeural")
-            style, rate, pitch = ("empathetic", "+2%", "+1st")
+            voice = VOIX_FEMME.get(mode_key, "fr-FR-VivienneMultilingualNeural")
+            rate, pitch = "+2%", "+1st"
 
-        ssml = build_ssml(text, voice, style, rate, pitch)
+        say = strip_tts_garbage(text)
         if out_file.exists():
             try: out_file.unlink()
             except Exception: pass
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(asyncio.wait_for(_tts_async(ssml, voice, out_file), timeout=15))
+
+        loop = asyncio.new_event_loop(); asyncio.set_event_loop(loop)
+        loop.run_until_complete(asyncio.wait_for(_tts_async(say, voice, rate, pitch, out_file), timeout=20))
         loop.close()
         return "ok" if (out_file.exists() and out_file.stat().st_size > 1000) else "error"
     except Exception as e:
         try: loop.close()
         except Exception: pass
-        print("[TTS error]", e)
-        return "error"
+        print("[TTS error]", e); return "error"
 
-# ============= ROUTES =============
+# ========= ROUTES =========
 @app.route("/")
 def index():
     return render_template("index.html")
+
+@app.route("/activer-ankaa")
+def activer():
+    return ("", 204)
 
 @app.route("/invoquer", methods=["POST"])
 def invoquer():

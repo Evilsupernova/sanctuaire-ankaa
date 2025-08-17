@@ -10,7 +10,7 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
   text-shadow:0 0 10px #000, 0 0 32px #ffe066;
   margin: 4px 12px 6px;
   white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  font-size: clamp(16px, 5vw, 36px); /* reste sur UNE ligne */
+  font-size: clamp(14px, 4.4vw, 34px);
 }
 .phrase-sacrée{
   text-align:center; color:#fff9c4; font-style:italic;
@@ -19,7 +19,7 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
   margin: 0 12px 8px;
 }
 
-/* Colonne d’outils sous le titre */
+/* Colonne d’outils (gauche, sous le titre) */
 #tools-column{
   position:fixed; left:12px; z-index:10050;
   display:flex; flex-direction:column; gap:var(--tools-gap);
@@ -31,7 +31,13 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 }
 .tool-btn:hover,.tool-btn:focus{ background:#ffe066; color:#2c2108; transform:translateY(-1px); border-color:rgba(255,224,102,.55); box-shadow:0 0 16px 4px #ffe06699; }
 
-/* Œil plus grand */
+/* Bouton "Ouvrir sanctuaire" en bas à droite */
+#bouton-sanctuaire{
+  position:fixed !important; right:12px; bottom:calc(12px + env(safe-area-inset-bottom));
+  z-index:10060;
+}
+
+/* Œil */
 .oeil-centre{ position:relative; z-index:2; width:clamp(260px,62vw,440px); margin:clamp(8px,2.5vh,24px) auto 0; }
 #oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; }
 #aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:96%; height:72%;
@@ -96,6 +102,3 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
   transition:transform .12s, box-shadow .14s, border-color .14s, background .14s;
   display:flex; align-items:center; justify-content:center; gap:10px;
 }
-.mode-option:hover,.mode-option:focus{ transform:translateY(-2px) scale(1.02); border-color:rgba(255,224,102,.55); box-shadow:0 0 18px rgba(255,224,102,.22); }
-
-/* Ajuste la colonne sous le titre via JS */

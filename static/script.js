@@ -1,16 +1,16 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // --- viewport iOS fiable ---
+  // viewport iOS
   function setVh(){ const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
     document.documentElement.style.setProperty('--vh', `${vh/100}px`); }
   setVh(); window.addEventListener('resize', setVh);
   window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
 
-  // --- déverrouillage audio iOS au 1er tap ---
+  // déverrouillage audio iOS
   (function unlock(){
-    const list=[ 'musique-sacree','tts-player','s-click','s-open','s-close','s-mode' ]
-      .map(id=>document.getElementById(id));
+    const ids=['musique-sacree','tts-player','s-click','s-open','s-close','s-mode'];
+    const arr=ids.map(id=>document.getElementById(id));
     function arm(){
-      list.forEach(a=>{ if(!a) return; a.muted=true; const p=a.play(); if(p&&p.finally) p.finally(()=>{a.pause();a.muted=false;}); });
+      arr.forEach(a=>{ if(!a) return; a.muted=true; const p=a.play(); if(p&&p.finally) p.finally(()=>{a.pause();a.muted=false;}); });
       window.removeEventListener('touchstart', arm, {passive:true});
       window.removeEventListener('click', arm, {passive:true});
     }
@@ -18,10 +18,11 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('click', arm, {once:true, passive:true});
   })();
 
-  // --- refs ---
+  // refs
   const input = document.getElementById('verbe');
   const btnGo = document.getElementById('btn-verbe');
   const zone  = document.getElementById('zone-invocation');
+
   const btnOpen = document.getElementById('bouton-sanctuaire');
   const btnMode = document.getElementById('btn-mode-mini');
   const btnVeil = document.getElementById('btn-veille-mini');
@@ -48,29 +49,48 @@ document.addEventListener('DOMContentLoaded', () => {
   if (bgm) bgm.volume = 0.22;
   [sClick,sOpen,sClose,sMode].forEach(a=>{ if(a) a.volume=0.30; });
 
-  // place la colonne outils sous le titre
+  // place la colonne outils SOUS le titre
   function placeTools(){
     if(!header || !tools) return;
     const b = header.getBoundingClientRect();
     tools.style.top = Math.round(b.bottom + 8) + 'px';
   }
-  placeTools();
-  window.addEventListener('resize', placeTools);
-  window.visualViewport && window.visualViewport.addEventListener('resize', placeTools);
 
-  // état
+  // auto-fit titre sur UNE ligne
+  function fitTitle(){
+    const t = document.querySelector('.titre-sacré');
+    if(!t) return;
+    let size = parseFloat(getComputedStyle(t).fontSize);
+    const min=14;
+    t.style.whiteSpace='nowrap';
+    while(t.scrollWidth > t.clientWidth && size>min){
+      size -= 1;
+      t.style.fontSize = size+'px';
+    }
+    placeTools();
+  }
+
+  fitTitle();
+  window.addEventListener('resize', fitTitle);
+  window.visualViewport && window.visualViewport.addEventListener('resize', fitTitle);
+
+  // état initial
   try{ localStorage.removeItem('mode'); }catch(_){}
   if(zone) zone.style.display='none';
   [btnGo,input].forEach(el=> el && (el.disabled = true));
 
-  let vocalMode = true; // lecture auto activée par défaut (tu peux mettre false si tu préfères)
-  btnVocal && btnVocal.addEventListener('click', ()=>{
-    vocalMode = !vocalMode;
-    btnVocal.style.background = vocalMode ? '#ffe066' : 'rgba(32,28,8,.60)';
-    btnVocal.style.color      = vocalMode ? '#2c2108' : '#ffe066';
-  });
+  // mode vocal (lecture auto INVOCATION)
+  let vocalMode = true;
+  if(btnVocal){
+    btnVocal.style.background='#ffe066'; btnVocal.style.color='#2c2108';
+    btnVocal.addEventListener('click', ()=>{
+      vocalMode = !vocalMode;
+      btnVocal.style.background = vocalMode ? '#ffe066' : 'rgba(32,28,8,.60)';
+      btnVocal.style.color      = vocalMode ? '#2c2108' : '#ffe066';
+    });
+  }
 
-  // utilitaires
+  // utils
   const safePlay=a=>{ if(!a) return; a.currentTime=0; const p=a.play(); if(p&&p.catch) p.catch(()=>{}); };
   const isSpeaking=()=> tts && !tts.paused && tts.currentTime>0 && !tts.ended;
   const stopSpeaking=()=>{
@@ -87,8 +107,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const h=Math.ceil(z.getBoundingClientRect().height||56);
     document.documentElement.style.setProperty('--chat-h', h+'px');
   }
-  syncChatH();
-  window.addEventListener('resize', syncChatH);
+  syncChatH(); window.addEventListener('resize', syncChatH);
   window.visualViewport && window.visualViewport.addEventListener('resize', syncChatH);
 
   // overlay
@@ -107,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(e.key==='Escape' && overlayEl && !overlayEl.classList.contains('overlay-hidden')) overlay.close();
   });
 
-  // ouvrir sanctuaire
+  // ouvrir sanctuaire (bouton à DROITE)
   btnOpen?.addEventListener('click', ()=>{
     fetch('/activer-ankaa').catch(()=>{});
     safePlay(sOpen);
@@ -116,11 +135,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if(input) input.disabled=true;
     if(bgm) safePlay(bgm);
     overlay.open({blockInput:true});
-    btnOpen.style.display='none'; // ← disparaît après ouverture
-    syncChatH(); placeTools();
+    // si tu veux qu'il disparaisse après ouverture, décommente:
+    // btnOpen.style.display='none';
+    syncChatH(); placeTools(); fitTitle();
   });
 
-  // sélection de mode
+  // sélection mode
   function setMode(key){
     try{ localStorage.setItem('mode', key); }catch(_){}
     btnGo&&(btnGo.disabled=false);
@@ -140,11 +160,9 @@ document.addEventListener('DOMContentLoaded', () => {
     (function loop(){ if(i<L){ ptxt.textContent+=text[i++]; setTimeout(loop,step);} })();
     setTimeout(()=>{ pap.style.display='none'; ptxt.textContent=''; }, Math.max(d+300,2000)); }
 
-  // ----- INVOCATION: même bouton = DÉMARRER / STOP -----
+  // INVOCATION — même bouton = START/STOP
   async function envoyer(e){
     e && e.preventDefault();
-
-    // Si ça parle déjà -> STOP immédiat
     if(isSpeaking()){ stopSpeaking(); return; }
 
     const prompt=(input?.value||"").trim(); if(!prompt) return;
@@ -157,15 +175,13 @@ document.addEventListener('DOMContentLoaded', () => {
       const r=await fetch("/invoquer",{ method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ prompt, mode })});
       const data=await r.json(); wait(false); btnGo?.classList.remove('active');
       const rep=data?.reponse||"(Silence sacré)";
-      const hasAudio = data?.audio_url;
 
-      const playDur = (dflt)=>Math.max(1800, dflt);
-      if(hasAudio && tts){
+      if(data?.audio_url && tts){
         tts.src = data.audio_url + "?t=" + Date.now();
         tts.onloadedmetadata = function(){
-          const d = playDur((tts.duration||2)*1000);
+          const d = Math.max(1800,(tts.duration||2)*1000);
           playVisu(d); showPap(rep, d);
-          if(vocalMode){ safePlay(tts); } // mode vocal: lit automatiquement
+          if(vocalMode){ safePlay(tts); }
         };
       } else {
         const d = Math.max(2200, rep.length*42);
@@ -180,7 +196,7 @@ document.addEventListener('DOMContentLoaded', () => {
   btnGo?.addEventListener('click', envoyer);
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyer(e); });
 
-  // ----- SOUFFLE (récite fragments, voix homme) -----
+  // SOUFFLE — fragments, voix homme
   let souffleLock=false, souffleTimer=null;
   btnVeil?.addEventListener('click', ()=>{
     if(btnVeil.classList.contains('active')){
@@ -199,9 +215,7 @@ document.addEventListener('DOMContentLoaded', () => {
           tts.src=data.audio_url+"?t="+Date.now();
           tts.onloadedmetadata=function(){
             const d=Math.max(1800,(tts.duration||2)*1000);
-            playVisu(d); showPap(rep,d);
-            // Souffle lit toujours (voix homme)
-            safePlay(tts);
+            playVisu(d); showPap(rep,d); safePlay(tts);
             setTimeout(()=> souffleLock=false, d+400);
           };
         } else {
