@@ -12,7 +12,7 @@ except Exception:
     edge_tts = None
 
 # ---- Flask (index.html à la racine du projet)
-app = Flask(__name__, static_url_path="/static", template_folder=".")
+app = Flask(__name__, static_url_path="/static", template_folder="templates")
 BASE = Path(__file__).parent.resolve()
 DATASET = BASE / "dataset"
 MEM = BASE / "memory"
