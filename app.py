@@ -1,4 +1,4 @@
-# app.py — Ankaa V10.3 (RAG fort + Souffle fragments + volumes + routes diag)
+# app.py — Ankaa V10.4 (RAG + souffle fragments + TTS segmenté + filtres emoji)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
@@ -10,7 +10,7 @@ try:
 except Exception:
     edge_tts = None
 
-# index.html est dans /templates
+# templates/index.html
 app = Flask(__name__, static_url_path="/static", template_folder="templates")
 BASE = Path(__file__).parent.resolve()
 DATASET = BASE / "dataset"
@@ -19,7 +19,7 @@ AUDIO = BASE / "static" / "assets"
 MEM.mkdir(exist_ok=True)
 AUDIO.mkdir(parents=True, exist_ok=True)
 
-# Voix
+# ---------- Voix ----------
 VOIX_FEMME = {
     "sentinelle8": "fr-FR-DeniseNeural",
     "dragosly23":  "fr-CA-SylvieNeural",
@@ -34,12 +34,24 @@ VOIX_HOMME = {
 }
 MODES = {m: {"mem": MEM / f"memoire_{m}.json"} for m in VOIX_FEMME}
 
-# -------------------- utils texte --------------------
+# ---------- Utils texte ----------
+EMOJI_RE = re.compile(
+    r"[\U0001F1E6-\U0001F1FF"     # drapeaux
+    r"\U0001F300-\U0001FAD6"      # emojis misc
+    r"\U0001FAE0-\U0001FAFF"      # mains récentes
+    r"\U00002700-\U000027BF"      # dingbats
+    r"\U00002600-\U000026FF"      # divers symboles
+    r"\u200d\uFE0F"               # ZWJ/VS16
+    r"\uFE0F"                     # VS16
+    r"]+", flags=re.UNICODE)
+
+def strip_emojis(s: str) -> str:
+    return EMOJI_RE.sub(" ", s or "").replace("🌒", " ").replace("🌙", " ").replace("✨"," ")
+
 def _clean(s):
     if not s: return ""
     s = s.replace("\u200b","").replace("\ufeff","")
-    s = re.sub(r"[ \t]+"," ", s.replace("\n"," ").strip())
-    return s
+    return re.sub(r"\s+"," ", s.replace("\n"," ")).strip()
 
 def _norm(s):
     s = (s or "").lower()
@@ -56,18 +68,18 @@ def jload(p, d):
     except: return d
 def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2), encoding="utf-8")
 
-# -------------------- RAG: index --------------------
+# ---------- RAG (index) ----------
 FRAGS, DF, N = [], Counter(), 0
 
-def _read_any(p):
+def _read_any(p: Path) -> str:
     for enc in ("utf-8","latin-1"):
         try: return p.read_text(enc)
         except: pass
     return ""
 
-def _split(txt, name):
+def _split(txt: str, name: str):
     if not txt: return []
-    parts = [p.strip() for p in re.split(r"\n\s*\n|(?:[.!?…]\s+)", txt) if p.strip()]
+    parts = [p.strip() for p in re.split(r"\n\s*\n|(?<=[.!?…])\s+", txt) if p.strip()]
     out, buf, cnt = [], [], 0
     for p in parts:
         w = p.split()
@@ -79,11 +91,10 @@ def _split(txt, name):
     clean=[]
     for ch in out:
         w=ch.split()
-        clean.append(" ".join(w[:200]) if len(w)>200 else " ".join(w))
+        clean.append(" ".join(w[:220]) if len(w)>220 else " ".join(w))
     return [{"id":None,"file":name,"text":c} for c in clean if len(c.split())>=50]
 
 def build_index():
-    """Lit dataset/ et construit l'index (Render inclus)."""
     global FRAGS, DF, N
     FRAGS, DF, N = [], Counter(), 0
     if not DATASET.exists():
@@ -130,11 +141,11 @@ def retrieve(q, k=3, min_score=0.75):
         if len(out)>=k: break
     return out
 
-# -------------------- Génération --------------------
+# ---------- Réponses ----------
 def is_greet(s):
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 
-def greet(): return "Salut, frère 🌙. Je t’écoute — de quel passage veux-tu qu’on parle ?"
+def greet(): return "Salut, frère. Dis-moi quel passage tu veux éclairer."
 
 def explain_hits(hits):
     intro = "Dans tes écrits, je relève ceci :"
@@ -142,7 +153,7 @@ def explain_hits(hits):
     for h in hits:
         frag=_clean(h["text"]); snippet=" ".join(frag.split()[:70])
         lines.append(f"• {snippet}…")
-    outro = "Dis-moi si on développe un des passages."
+    outro = "Dis-moi si on développe un de ces passages."
     return f"{intro}\n" + "\n".join(lines) + f"\n\n{outro}"
 
 def compose_from_dataset(user_text, k=3):
@@ -167,8 +178,8 @@ def dialogue_answer(user):
         return "Donne-moi une phrase ou un mot-clé, et je t’éclaire."
     lead = random.choice(["Je te suis.","D’accord.","Je comprends."])
     ask  = random.choice([
-        "Quel passage du texte t’appelle ?",
-        "Tu veux qu’on ancre ça dans une action ?",
+        "Quel passage t’appelle ?",
+        "Tu veux une synthèse ou un plan ?",
         "On cible un thème précis ?"
     ])
     return f"{lead} {ask}"
@@ -180,7 +191,7 @@ def answer(user, mode):
     if composed: return composed
     return dialogue_answer(user)
 
-# -------------------- TTS --------------------
+# ---------- TTS helpers ----------
 BAD = [
     r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
     r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
@@ -188,9 +199,23 @@ BAD = [
     r"[\/\\]{1,}", r"\[[^\]]+\]", r"\([^)]+\)"
 ]
 def strip_tts(txt):
-    t=txt or ""
+    t=strip_emojis(txt or "")
     for p in BAD: t=re.sub(p, " ", t)
     return re.sub(r"\s+"," ", t).strip(" .")
+
+def split_sentences(text: str):
+    raw = [s.strip() for s in re.split(r"(?<=[\.!?…])\s+", text) if s.strip()]
+    # regroupe les très courtes avec la suivante
+    out=[]; buf=""
+    for s in raw:
+        if len(s.split())<6:
+            buf = (buf+" "+s).strip()
+            continue
+        if buf:
+            out.append(buf); buf=""
+        out.append(s)
+    if buf: out.append(buf)
+    return out[:12]  # limite raisonnable
 
 def _tts_azure(text, voice, out_file):
     try:
@@ -245,7 +270,12 @@ def do_tts(text, mode, is_souffle, out_file: Path):
     if st != "disabled": print("[tts] Azure KO, fallback edge-tts…")
     return _tts_edge(clean, voice, rate, pitch, out_file)
 
-# -------------------- Routes --------------------
+def cleanup_old_tts():
+    for f in AUDIO.glob("anka_tts_*.mp3"):
+        try: f.unlink()
+        except: pass
+
+# ---------- Routes ----------
 @app.route("/")
 def index():
     return render_template("index.html")
@@ -275,18 +305,26 @@ def invoquer():
 
     rep = answer(prompt, mode)
 
+    # mémoire
     memp = MODES[mode]["mem"]
     mem = jload(memp, {"fragments":[]})
     mem["fragments"].append({"date":datetime.now().isoformat(),"mode":mode,"souffle":is_souffle,"prompt":prompt,"reponse":rep})
     mem["fragments"] = mem["fragments"][-200:]
     jsave(memp, mem)
 
-    out = AUDIO / "anka_tts.mp3"
-    ok = do_tts(rep, mode, is_souffle, out)
-    url = f"/static/assets/{out.name}" if ok=="ok" else None
-    return jsonify({"reponse":rep, "audio_url":url, "tts":ok})
+    # --- TTS segmenté (synchro papyrus) ---
+    cleanup_old_tts()
+    segments = split_sentences(rep)
+    out_list = []
+    for i, seg in enumerate(segments):
+        out = AUDIO / f"anka_tts_{i}.mp3"
+        ok = do_tts(seg, mode, is_souffle, out)
+        if ok == "ok":
+            out_list.append({"text": seg, "audio_url": f"/static/assets/{out.name}"})
 
-# Construit l’index aussi sous gunicorn (Render)
+    return jsonify({"reponse":rep, "segments": out_list, "tts":"ok" if out_list else "error"})
+
+# construit l’index au démarrage (Render/gunicorn)
 build_index()
 
 if __name__=="__main__":
