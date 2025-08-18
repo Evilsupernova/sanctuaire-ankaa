@@ -74,7 +74,6 @@ document.addEventListener('DOMContentLoaded', () => {
   const VOLUME_BASE = 0.10, VOLUME_DUCK = 0.05;
   if(bgm) bgm.volume = VOLUME_BASE;
   if(tts) tts.volume = 1.0;
-
   function restoreVolume(){ if(bgm) bgm.volume = VOLUME_BASE; State.tts=false; }
 
   function syncToggles(){
@@ -150,7 +149,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(btnVocal) btnVocal.style.display='';
     if(pap) pap.style.display='none';
 
-    safePlay(bgm); safePlay(sOpen);
+    safePlay(bgm); safePlay(sOpen); safePlay(sClick); // ping audio iOS
     overlay.open(true);
     btnOpen.style.display='none';
   });
@@ -243,8 +242,9 @@ document.addEventListener('DOMContentLoaded', () => {
   async function invokeAndPlay(prompt, {respectSouffle=true}={}){
     scheduleHidePapyrus(200);
     const segments = await fetchSegments(prompt);
+    console.log('[invokeAndPlay]', prompt, 'segments:', segments?.length || 0);
     if(respectSouffle && prompt.toLowerCase().includes('souffle') && !State.souffle){ return; }
-    if(!segments.length){ toast("Rien à lire."); return; }
+    if(!segments || !segments.length){ toast("Rien à lire (diag)."); return; }
     await playSegments(segments);
   }
 
@@ -265,7 +265,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // -------- Souffle sacré --------
   function stopSouffle(){ if(!State.souffle) return; State.souffle=false; setActive(btnVeil,false); if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; } stopSpeaking(); toast("Souffle sacré désactivé."); syncToggles(); }
   function planifierSouffleSuivant(){ if(!State.souffle) return; if(State.souffleNext){ clearTimeout(State.souffleNext); } State.souffleNext=setTimeout(()=>{ if(!State.souffle) return; if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); } }, 35000); }
-  async function lancerSouffle(){ if(!State.sanctuaire||!State.souffle) return; if(State.isPlaying){ planifierSouffleSuivant(); return; } await invokeAndPlay("souffle sacré", {respectSouffle:true}); planifierSouffleSuivant(); }
+  async function lancerSouffle(){ if(!State.sanctuaire || !State.souffle) return; if(State.isPlaying){ planifierSouffleSuivant(); return; } console.log('[souffle] lancerSouffle()'); await invokeAndPlay("souffle sacré", {respectSouffle:true}); planifierSouffleSuivant(); }
   btnVeil?.addEventListener('click', ()=>{ if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; } if(State.souffle){ stopSouffle(); } else { State.souffle=true; setActive(btnVeil,true); toast("Souffle sacré activé."); if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); } syncToggles(); } });
 
   // -------- Toast --------

@@ -1,4 +1,4 @@
-# Sanctuaire Ankaa v13.1 — FR poli, RAG stable, TTS cache, journaux JSON, endpoints service + DIAG séparé
+# Sanctuaire Ankaa v13.2 — FR poli, RAG stable, TTS cache, diag séparé + fallback Souffle
 import os, re, json, math, asyncio, unicodedata, random, time
 from pathlib import Path
 from datetime import datetime
@@ -123,7 +123,7 @@ def retrieve(q, k=3):
     ranked=_bm25(qt)
     out=[]
     top = ranked[0][1] if ranked else 0.0
-    min_score = max(0.65, top*0.42)  # coupe le bruit
+    min_score = max(0.65, top*0.42)
     for did,sc in ranked[:max(18,k*4)]:
         if sc<min_score: continue
         d=FRAGS[did]
@@ -194,12 +194,19 @@ def compose_answer(user):
     return "Dans tes écrits, voici ce qui se lève :\n" + interpret(hits)
 
 def answer(user, mode):
-    # Réponses toujours en français
     if is_greet(user): return greet()
+
+    # SOUFFLE — avec fallback garanti
     if _norm(user)=="souffle sacre":
-        multi=pick_multi_fragments(n=2) or [pick_full_fragment() or ""]
-        text="\n\n".join(multi)
+        multi = pick_multi_fragments(n=2)
+        if not multi:
+            full = pick_full_fragment()
+            if full: multi = [full]
+        if not multi:
+            multi = ["Respire doucement… Inspire la paix, expire la tension. Laisse ton cœur s’ouvrir à la lumière."]
+        text = "\n\n".join(multi)
         return "Souffle sacré :\n" + text
+
     composed=compose_answer(user)
     if composed: return composed
     return "Donne-moi un mot-clé ou une phrase, et je descends dans ton Verbe."
@@ -208,12 +215,11 @@ def answer(user, mode):
 def polish_fr_text(txt: str) -> str:
     if not txt: return ""
     t = strip_emojis(txt)
-    t = re.sub(r"\.\.\.", "…", t)             # ... -> …
-    t = re.sub(r"\s*([:;!?])", r" \1", t)     # espace avant : ; ! ?
-    t = re.sub(r"\s+([\.…])", r"\1", t)       # pas d’espace avant . …
+    t = re.sub(r"\.\.\.", "…", t)
+    t = re.sub(r"\s*([:;!?])", r" \1", t)
+    t = re.sub(r"\s+([\.…])", r"\1", t)
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s--\s", " — ", t)
-    # guillemets français simples (approx)
     t = t.replace('" ', '« ').replace(' "', ' « ').replace('"', ' »')
     return t.strip()
 
@@ -377,14 +383,13 @@ def invoquer():
 
     return jsonify({"segments": out_list, "tts": "ok", "lang": "fr"})
 
-# -------- DIAG FRONT SEPARE (n'interfère pas avec l'app) --------
+# -------- DIAG FRONT SEPARE --------
 @app.route("/diag-log")
 def diag_log():
     return jsonify(list(INV_LOG))
 
 @app.route("/diag-front")
 def diag_front():
-    # IMPORTANT: pas de f-string ici, pour éviter les accolades CSS/JS qui cassent l'analyse
     html = """<!doctype html>
 <html lang="fr"><meta charset="utf-8">
 <title>Diag Front — Sanctuaire Ankaa</title>

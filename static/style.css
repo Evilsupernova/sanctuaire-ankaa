@@ -122,21 +122,23 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
   background:rgba(0,0,0,.75); color:#fff; padding:8px 12px; border-radius:10px; font-size:14px;
 }
 /* --- Pleine hauteur mobile : pas de bande blanche --- */
-html, body { height: 100%; margin: 0; }
-:root { --vh: 1vh; } /* mis à jour par le JS existant */
+html, body { height: 100%; margin: 0; background-color: #000; }
+:root { --vh: 1vh; } /* mis à jour par le JS */
+
 body {
-  min-height: 100dvh;
-  min-height: calc(var(--vh) * 100);
-  background-size: cover;           /* couvre tout l'écran */
+  min-height: 100svh;                 /* iOS/Android modernes */
+  min-height: 100lvh;                 /* tient compte des barres */
+  min-height: calc(var(--vh) * 100);  /* fallback iOS via JS */
+  background-size: cover;             /* couvre tout l'écran */
   background-position: center center;
   background-repeat: no-repeat;
-  /* Si l'image "saute" sur iOS, laisse commenté : */
-  /* background-attachment: fixed; */
+  /* background-attachment: fixed;  <-- laisser commenté si ça saute sur iOS */
 }
 
-/* Si ton fond n'est pas appliqué sur body mais sur un wrapper, adapte le sélecteur :
-.fond-cosmique, .wrap-fond, #fond-cosmique {
-  min-height: 100dvh;
+/* Si ton fond n'est PAS appliqué sur body mais sur un wrapper, applique ce bloc au wrapper :
+#fond-cosmique, .fond-cosmique, .wrap-fond {
+  min-height: 100svh;
+  min-height: 100lvh;
   min-height: calc(var(--vh) * 100);
   background-size: cover;
   background-position: center center;
