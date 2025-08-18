@@ -198,27 +198,46 @@ document.addEventListener('DOMContentLoaded', () => {
   btnGo?.addEventListener('click', send);
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') send(); });
 
-  // -------- Souffle (toggle fiable + relance) --------
-  function planifierSouffleSuivant(){
-    if(!State.souffle) return;
-    if(State.souffleNext){ clearTimeout(State.souffleNext); }
-    State.souffleNext=setTimeout(()=>{ if(State.souffle) lancerSouffle(); }, 35000);
+  // -------- Souffle (toggle fiable + cycle automatique multi-fragments) --------
+function planifierSouffleSuivant() {
+  if (!State.souffle) return;
+  if (State.souffleNext) { clearTimeout(State.souffleNext); }
+  // relance après ~40s (ou un peu plus si segment long)
+  State.souffleNext = setTimeout(() => {
+    if (State.souffle) lancerSouffle();
+  }, 40000);
+}
+
+async function lancerSouffle() {
+  if (!State.sanctuaire) return;
+  // stop toute lecture courante pour éviter chevauchement
+  stopSpeaking();
+  await invokeServer("souffle sacré");  // côté serveur : 2 fragments complets
+  planifierSouffleSuivant();
+}
+
+function stopSouffle() {
+  if (!State.souffle) return;
+  State.souffle = false;
+  setActive(btnVeil, false);
+  if (State.souffleNext) { clearTimeout(State.souffleNext); State.souffleNext = null; }
+  // on coupe aussi toute lecture si elle venait du souffle
+  stopSpeaking();
+}
+
+btnVeil?.addEventListener('click', () => {
+  if (!State.sanctuaire) { toast("Active d’abord le Sanctuaire ☥"); return; }
+  if (State.souffle) {
+    // -> OFF
+    stopSouffle();
+  } else {
+    // -> ON
+    State.souffle = true;
+    setActive(btnVeil, true);
+    // si quelque chose joue, on attend la fin sinon on démarre tout de suite
+    if (State.isPlaying) { planifierSouffleSuivant(); } else { lancerSouffle(); }
   }
-  async function lancerSouffle(){
-    if(!State.sanctuaire) return;
-    await invokeServer("souffle sacré");
-    planifierSouffleSuivant();
-  }
-  btnVeil?.addEventListener('click', ()=>{
-    if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    if(State.souffle){
-      stopSouffle();
-    } else {
-      State.souffle=true; setActive(btnVeil,true);
-      // si quelque chose joue, on attend la fin
-      if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); }
-    }
-  });
+});
 
   // -------- Toast --------
   function toast(msg){

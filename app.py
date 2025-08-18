@@ -160,31 +160,49 @@ def is_greet(s):
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
 def greet(): return "Salut, frère. De quel passage veux-tu que je tire la lumière ?"
 
-def pick_random_fragment():
-    if not FRAGS: return None
-    frag=random.choice(FRAGS)
-    return _clean(frag['text'])
+def pick_random_fragments(n=2):
+    """Sélectionne n FRAGMENTS COMPLETS, sans tronquer le début/fin."""
+    if not FRAGS: return []
+    pool = random.sample(FRAGS, k=min(n, len(FRAGS)))
+    return [_clean(p["text"]) for p in pool]
 
 def compose_answer(user):
-    hits=retrieve(user, k=3)
+    hits = retrieve(user, k=3)
     if not hits: return None
-    explained=interpret(hits)
-    if explained: return f"Dans tes écrits, voici ce qui se lève :\n{explained}"
-    parts=[]
-    for h in hits:
-        frag=_clean(h["text"]); parts.append("— "+ " ".join(frag.split()[:70])+"…")
-    return "Je lis :\n" + "\n".join(parts)
 
-def answer(user, mode):
-    if is_greet(user): return greet()
-    if _norm(user)=="souffle sacre":
-        frag = pick_random_fragment()
-        if frag:
-            return "Souffle sacré :\n" + " ".join(frag.split()[:90]) + "…"
-        return "Inspire, retiens, puis expire longuement — la flamme veille."
-    composed=compose_answer(user)
-    if composed: return composed
-    return "Donne-moi un mot-clé ou une phrase, et je descends dans ton Verbe."
+    # matière première (fragments entiers)
+    frags = [_clean(h["text"]) for h in hits]
+    base = " ".join(frags)
+
+    # thèmes/mots-clés
+    kws = top_keywords(base)
+    themes = []
+    if any(w in base.lower() for w in ["amour","libre","sacré","sacre"]): themes.append("l'amour libre et sacré")
+    if any(w in base.lower() for w in ["authenticité","vrai","vérité","verite"]): themes.append("la soif d'authenticité")
+    if any(w in base.lower() for w in ["fatigu","perform","efficace"]): themes.append("la fatigue d'être performant")
+    if any(w in base.lower() for w in ["souffle","respir"]): themes.append("le souffle comme offrande")
+    if any(w in base.lower() for w in ["feu","flamme","lumiere","lumière"]): themes.append("le feu qui éclaire le chemin")
+
+    # synthèse sacrée
+    lines = []
+    lines.append("Dans tes écrits, je perçois ceci :")
+    if themes:
+        lines.append("• Thèmes qui se lèvent : " + ", ".join(themes) + ".")
+    if kws:
+        lines.append("• Mots qui rayonnent : " + ", ".join(kws[:5]) + ".")
+    # citation courte mais complète (début au milieu d'un vrai fragment)
+    cite = " ".join(frags[0].split()[:90]) + ("…" if len(frags[0].split()) > 90 else "")
+    lines.append(f"« {cite} »")
+    lines.append("Sens : reviens à la relation vivante ; avance avec douceur et constance — chaque souffle peut devenir offrande.")
+    return "\n".join(lines)
+
+def rag_answer_for_breath():
+    """Souffle : lit 2 fragments entiers, enchaînés, pour garder le sens."""
+    frs = pick_random_fragments(n=2)
+    if frs:
+        joined = "\n\n".join(frs)
+        return f"Souffle sacré :\n{joined}"
+    return "Inspire, retiens, puis expire longuement — la flamme veille."
 
 # ---------------- TTS (segmenté) ----------------
 BAD = [
@@ -198,18 +216,34 @@ def strip_tts(txt):
     for p in BAD: t=re.sub(p, " ", t)
     return re.sub(r"\s+"," ", t).strip(" .")
 
-def split_sentences(text: str):
-    raw = [s.strip() for s in re.split(r"(?<=[\.!?…])\s+", text) if s.strip()]
-    out=[]; buf=""
-    for s in raw:
-        if len(s.split())<6:
-            buf = (buf+" "+s).strip()
+def _split(txt: str, name: str):
+    """
+    Coupe proprement par paragraphes / fins de phrase pour éviter les bouts tronqués.
+    Garde des fragments 'entiers' d'au moins ~110 mots quand c'est possible.
+    """
+    if not txt: return []
+    # 1) d'abord par paragraphes
+    paras = [p.strip() for p in re.split(r"\n\s*\n+", txt) if p.strip()]
+    chunks = []
+    for para in paras:
+        # si paragraphe très long, on coupe sur fins de phrases
+        sentences = [s.strip() for s in re.split(r"(?<=[.!?…])\s+", para) if s.strip()]
+        buf, count = [], 0
+        for s in sentences:
+            w = s.split()
+            buf.append(s); count += len(w)
+            if count >= 110:     # seuil pour avoir du sens
+                chunks.append(" ".join(buf).strip()); buf, count = [], 0
+        rest = " ".join(buf).strip()
+        if rest: chunks.append(rest)
+    # post-traitement taille max douce (évite bavardage)
+    clean=[]
+    for ch in chunks:
+        words = ch.split()
+        if len(words) < 60:  # on écarte les trop courts
             continue
-        if buf:
-            out.append(buf); buf=""
-        out.append(s)
-    if buf: out.append(buf)
-    return out[:14]
+        clean.append(" ".join(words[:260]) if len(words) > 260 else ch)
+    return [{"id": None, "file": name, "text": c} for c in clean]
 
 def _tts_azure(text, voice, out_file):
     try:
