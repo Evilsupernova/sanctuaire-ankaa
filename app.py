@@ -267,6 +267,11 @@ def cleanup_old_tts():
 @app.route("/")
 def index(): return render_template("index.html")
 
+@app.route("/activer-ankaa")
+def activer_ankaa():
+    # simple ping pour dire au front que l’activation est ok
+    return jsonify({"status": "ok", "message": "Sanctuaire activé"})
+
 @app.route("/diag")
 def diag():
     return jsonify({"dataset_exists": DATASET.exists(),
