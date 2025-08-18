@@ -1,523 +1,707 @@
-# Sanctuaire Ankaa v14 — FR poli, LLM (Mistral) optionnel, RAG, TTS cache, diag séparé, souffle garanti
-import os, re, json, math, asyncio, unicodedata, random, time, requests
+# app.py — Sanctuaire Ankaa (Cloud LLM + Local fallback)
+
+from flask import Flask, render_template, request, jsonify
+import os, json, random, re, asyncio, math, unicodedata
 from pathlib import Path
 from datetime import datetime
-from collections import Counter, defaultdict, deque
-from hashlib import sha1
-from flask import Flask, render_template, request, jsonify, make_response
+from threading import Lock
+from collections import Counter, defaultdict
 
-# edge-tts facultatif
+# ---------- Modèle local (optionnel, pour dev sur Mac) ----------
 try:
-    import edge_tts
+    from llama_cpp import Llama
 except Exception:
-    edge_tts = None
+    Llama = None
 
-app = Flask(__name__, static_url_path="/static", template_folder="templates")
-BASE    = Path(__file__).parent.resolve()
-DATASET = BASE / "dataset"
-MEM     = BASE / "memory"
-ASSETS  = BASE / "static" / "assets"
-CACHE   = ASSETS / "cache"   # MP3 réutilisables
-MEM.mkdir(exist_ok=True)
-ASSETS.mkdir(parents=True, exist_ok=True)
-CACHE.mkdir(parents=True, exist_ok=True)
+# ---------- TTS Edge ----------
+from edge_tts import Communicate
 
-# ---------- LLM (optionnel) ----------
-USE_LLM      = os.getenv("USE_LLM", "0") == "1"
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mistral").lower()
-MISTRAL_KEY  = os.getenv("MISTRAL_API_KEY")
-MISTRAL_MODEL= os.getenv("MISTRAL_MODEL", "mistral-small-latest")
-LLM_MAX_TOK  = int(os.getenv("MISTRAL_MAX_TOKENS", "400"))
+# ================== CONFIG GÉNÉRALE ==================
+app = Flask(__name__, static_url_path="/static")
+LOCK = Lock()
 
-def llm_generate(prompt: str, sys: str = "Tu parles un français clair, chaleureux et concis."):
-    """Renvoie du texte libre via LLM si activé, sinon None."""
+BASE_DIR     = Path(__file__).parent
+DATASET_DIR  = Path.home() / "Documents" / "ankaa" / "dataset"
+MEMORY_DIR   = BASE_DIR / "memory"
+AUDIO_DIR    = BASE_DIR / "static" / "assets"
+MODELS_DIR   = BASE_DIR.parent / "models"
+MODEL_PATH   = MODELS_DIR / "mistral.gguf"   # pour usage local seulement
+
+MEMORY_DIR.mkdir(exist_ok=True)
+AUDIO_DIR.mkdir(parents=True, exist_ok=True)
+
+LLM_LOCAL = None
+def get_llm_local():
+    """Charge le modèle local (llama.cpp) si présent — usage dev local."""
+    global LLM_LOCAL
+    if LLM_LOCAL is None and Llama is not None and MODEL_PATH.exists():
+        LLM_LOCAL = Llama(model_path=str(MODEL_PATH), n_ctx=4096, n_threads=4, verbose=False)
+    return LLM_LOCAL
+
+# ================== LLM CLOUD (PROD) ==================
+USE_LLM         = os.getenv("USE_LLM", "0") == "1"
+LLM_PROVIDER    = os.getenv("LLM_PROVIDER", "groq").lower()   # "groq" | "openrouter" | "mistral"
+# Groq
+GROQ_API_KEY    = os.getenv("GROQ_API_KEY")
+GROQ_MODEL      = os.getenv("LLM_MODEL", "llama3-70b-8192")
+# OpenRouter (clé unique pour plein de modèles)
+OPENROUTER_KEY  = os.getenv("OPENROUTER_API_KEY")
+# Mistral direct
+MISTRAL_KEY     = os.getenv("MISTRAL_API_KEY")
+MISTRAL_MODEL   = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+
+LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
+LLM_MAX_TOK     = int(os.getenv("LLM_MAX_TOKENS", "400"))
+
+def llm_cloud_generate(prompt: str, system_msg: str) -> str | None:
+    """Appel au LLM cloud si activé, sinon None."""
     if not USE_LLM:
         return None
-    if LLM_PROVIDER != "mistral" or not MISTRAL_KEY:
-        return None
     try:
-        url = "https://api.mistral.ai/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {MISTRAL_KEY}", "Content-Type": "application/json"}
-        body = {
-            "model": MISTRAL_MODEL,
-            "messages": [
-                {"role": "system", "content": sys},
-                {"role": "user", "content": prompt}
-            ],
-            "temperature": 0.7,
-            "max_tokens": LLM_MAX_TOK
-        }
-        r = requests.post(url, headers=headers, json=body, timeout=18)
-        j = r.json() if r.ok else {}
-        return (j.get("choices") or [{}])[0].get("message", {}).get("content")
+        import requests
+
+        # ---- Provider: Groq ----
+        if LLM_PROVIDER == "groq" and GROQ_API_KEY:
+            url = "https://api.groq.com/openai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {GROQ_API_KEY}", "Content-Type": "application/json"}
+            body = {
+                "model": GROQ_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": LLM_TEMPERATURE,
+                "max_tokens": LLM_MAX_TOK
+            }
+            r = requests.post(url, headers=headers, json=body, timeout=18)
+            j = r.json() if r.ok else {}
+            return (j.get("choices") or [{}])[0].get("message", {}).get("content")
+
+        # ---- Provider: OpenRouter ----
+        if LLM_PROVIDER == "openrouter" and OPENROUTER_KEY:
+            url = "https://openrouter.ai/api/v1/chat/completions"
+            headers = {
+                "Authorization": f"Bearer {OPENROUTER_KEY}",
+                "Content-Type": "application/json",
+                "X-Title": "Sanctuaire Ankaa",
+                "HTTP-Referer": os.getenv("APP_PUBLIC_URL","")
+            }
+            body = {
+                "model": os.getenv("LLM_MODEL","mistralai/mistral-small"),
+                "messages": [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": LLM_TEMPERATURE,
+                "max_tokens": LLM_MAX_TOK
+            }
+            r = requests.post(url, headers=headers, json=body, timeout=18)
+            j = r.json() if r.ok else {}
+            return (j.get("choices") or [{}])[0].get("message", {}).get("content")
+
+        # ---- Provider: Mistral direct ----
+        if LLM_PROVIDER == "mistral" and MISTRAL_KEY:
+            url = "https://api.mistral.ai/v1/chat/completions"
+            headers = {"Authorization": f"Bearer {MISTRAL_KEY}", "Content-Type": "application/json"}
+            body = {
+                "model": MISTRAL_MODEL,
+                "messages": [
+                    {"role": "system", "content": system_msg},
+                    {"role": "user", "content": prompt}
+                ],
+                "temperature": LLM_TEMPERATURE,
+                "max_tokens": LLM_MAX_TOK
+            }
+            r = requests.post(url, headers=headers, json=body, timeout=18)
+            j = r.json() if r.ok else {}
+            return (j.get("choices") or [{}])[0].get("message", {}).get("content")
+
+        return None
     except Exception as e:
-        print("[llm_generate error]", e)
+        print("[llm_cloud_generate error]", e)
         return None
 
-# ---------- VOIX ----------
-VOIX_FEMME = {
-    "sentinelle8": "fr-FR-DeniseNeural",
-    "dragosly23":  "fr-CA-SylvieNeural",
-    "invite":      "fr-FR-VivienneMultilingualNeural",
-    "verbe":       "fr-FR-BrigitteMultilingualNeural",
+# ================== UTILITAIRES TEXTE ==================
+def nettoyer(txt: str) -> str:
+    return re.sub(r"\s+", " ", (txt or "").replace("\n", " ")).strip()
+
+def remove_emojis(text: str) -> str:
+    emoji_pattern = re.compile(
+        "["u"\U0001F600-\U0001F64F"
+        u"\U0001F300-\U0001F5FF"
+        u"\U0001F680-\U0001F6FF"
+        u"\U0001F1E0-\U0001F1FF"
+        u"\U00002702-\U000027B0"
+        u"\U000024C2-\U0001F251"
+        "]+", flags=re.UNICODE)
+    return emoji_pattern.sub(r'', text or "")
+
+def nettoyer_pour_tts(txt: str) -> str:
+    """Évite les artefacts prononcés (balises, 'speech=', etc.)."""
+    t = txt or ""
+    t = re.sub(r"(?m)^\s*#.*?$", "", t)
+    t = re.sub(r"(?m)^```.*?$", "", t)
+    t = re.sub(r"(?m)^---.*?$", "", t)
+    t = t.replace("Dialogue :", "")
+    t = re.sub(r"☥[^:\n]+:\s*", "", t)
+    t = re.sub(r"𓂀[^:\n]+:\s*", "", t)
+    t = re.sub(r"\b(speech|voice|pitch|rate|prosody)\s*=\s*[^,\s]+", "", t, flags=re.I)
+    t = re.sub(r"<\/?[^>]+>", " ", t)
+    t = re.sub(r"\s+", " ", t).strip()
+    return t
+
+def load_json(p: Path, default):
+    try:
+        if p.exists():
+            return json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        pass
+    return default
+
+def save_json(p: Path, data):
+    p.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+
+# ================== NORMALISATION / TOKENISATION ==================
+def _norm(s: str) -> str:
+    s = (s or "").lower()
+    s = unicodedata.normalize("NFD", s)
+    s = "".join(c for c in s if unicodedata.category(c) != "Mn")
+    s = re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç'\-\s]", " ", s)
+    s = re.sub(r"\s+", " ", s).strip()
+    return s
+
+def _tokenize(s: str):
+    return [t for t in _norm(s).split() if len(t) > 2]
+
+STOPWORDS_FR = set("""
+au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont était étaient serai serais serions seraient
+""".strip().split())
+
+def keywords_fr(text: str, k: int = 6):
+    toks = [t for t in _tokenize(text) if t not in STOPWORDS_FR and len(t) >= 4]
+    freq = Counter(toks)
+    return [w for w,_ in freq.most_common(k)]
+
+# ================== IDENTITÉ PAR MODE ==================
+IDENTITY_PATTERNS = [r"\bSandro\b", r"\bDragosly\b", r"\bDragosly23\b", r"\bDRAGOSLY23\b"]
+
+def scrub_identity_text(txt: str) -> str:
+    out = txt or ""
+    for pat in IDENTITY_PATTERNS:
+        out = re.sub(pat, "frère", out, flags=re.IGNORECASE)
+    return re.sub(r"\s+", " ", out).strip()
+
+def identity_policy_for_mode(mode_key: str) -> str:
+    if mode_key == "dragosly23":
+        return ("En mode DRAGOSLY23, tu peux reconnaître Sandro si l’utilisateur l’évoque explicitement. "
+                "N’invente jamais d’identité et ne le mentionne pas spontanément.")
+    return ("Dans ce mode, n'emploie jamais de prénom ni d'identité de l’interlocuteur. "
+            "Adresse-toi de façon fraternelle et neutre (frère, sœur, ami·e).")
+
+# ================== MODES & MÉMOIRES ==================
+MODES = {
+    "sentinelle8": { "voice": "fr-FR-VivienneMultilingualNeural", "memory": MEMORY_DIR / "memoire.json",         "themes": MEMORY_DIR / "themes.json" },
+    "dragosly23":  { "voice": "fr-CA-SylvieNeural",               "memory": MEMORY_DIR / "memoire_dragosly.json","themes": MEMORY_DIR / "themes_dragosly.json" },
+    "invite":      { "voice": "fr-FR-DeniseNeural",               "memory": MEMORY_DIR / "memoire_invite.json",  "themes": MEMORY_DIR / "themes_invite.json" },
+    "verbe":       { "voice": "fr-FR-VivienneMultilingualNeural", "memory": MEMORY_DIR / "memoire_verbe.json",   "themes": MEMORY_DIR / "themes_verbe.json" },
 }
-VOIX_HOMME = {
-    "sentinelle8": "fr-FR-RemyMultilingualNeural",
-    "dragosly23":  "fr-CA-JeanNeural",
-    "invite":      "fr-FR-HenriNeural",
-    "verbe":       "fr-FR-AntoineNeural",
+MODE_TUNING = {
+    "sentinelle8": {"brief_sentences": (5, 7),  "normal_sentences": 12, "max_tokens": (520, 780),  "temp": (0.72, 0.92)},
+    "dragosly23":  {"brief_sentences": (7, 9),  "normal_sentences": 16, "max_tokens": (640, 900),  "temp": (0.78, 0.95)},
+    "invite":      {"brief_sentences": (6, 8),  "normal_sentences": 14, "max_tokens": (600, 860),  "temp": (0.74, 0.94)},
+    "verbe":       {"brief_sentences": (8,10),  "normal_sentences": 18, "max_tokens": (700,1000),  "temp": (0.85, 0.97)},
 }
-MODES = {m: {"mem": MEM / f"memoire_{m}.json"} for m in VOIX_FEMME}
+def tune_for(mode_key: str):
+    return MODE_TUNING.get(mode_key, MODE_TUNING["sentinelle8"])
 
-# ---------- Utils texte ----------
-EMOJI_RE = re.compile(r"[\U0001F1E6-\U0001F1FF\U0001F300-\U0001FAD6\U0001FAE0-\U0001FAFF\u2600-\u26FF\u2700-\u27BF]+", re.UNICODE)
-def strip_emojis(s: str) -> str: return EMOJI_RE.sub(" ", s or "")
+# ================== SOUFFLE SACRÉ ==================
+CURSOR_PATH = BASE_DIR / "dataset_cursor.json"
 
-def _clean(s):
-    if not s: return ""
-    s = s.replace("\u200b","").replace("\ufeff","")
-    return re.sub(r"\s+"," ", s.replace("\n"," ")).strip()
+def get_random_fragment_unique():
+    fragments, chemins, index_total = [], [], []
+    if DATASET_DIR.exists():
+        for file in os.listdir(DATASET_DIR):
+            if not file.endswith('.txt'):
+                continue
+            path = DATASET_DIR / file
+            try:
+                lignes = [l.strip() for l in path.read_text(encoding="utf-8").split("\n") if l.strip()]
+                bloc, mots, idx = "", 0, 0
+                for ligne in lignes:
+                    bloc += (" " if bloc else "") + ligne
+                    mots += len(ligne.split())
+                    if mots >= 90 and ligne.endswith(('.', '!', '?')):
+                        fragments.append(bloc.strip()); chemins.append(file); index_total.append(f"{file}:::{idx}")
+                        bloc, mots, idx = "", 0, idx+1
+                if bloc and mots >= 90:
+                    fragments.append(bloc.strip()); chemins.append(file); index_total.append(f"{file}:::{idx}")
+            except Exception:
+                pass
+    if not fragments:
+        return "𓂀 Silence sacré…"
 
-def _norm(s):
-    s=(s or "").lower()
-    s=unicodedata.normalize("NFD", s)
-    s="".join(c for c in s if unicodedata.category(c)!="Mn")
-    s=re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç'\-\s]"," ", s)
-    return re.sub(r"\s+"," ", s).strip()
+    curs = load_json(CURSOR_PATH, {"lus": []})
+    non_lus = [i for i, ident in enumerate(index_total) if ident not in curs["lus"]]
+    if not non_lus:
+        curs["lus"] = []; non_lus = list(range(len(fragments)))
+    i = random.choice(non_lus)
+    curs["lus"].append(index_total[i]); save_json(CURSOR_PATH, curs)
 
-def _tok(s): return [t for t in _norm(s).split() if len(t)>2]
-STOP_FR=set("au aux avec ce ces dans de des du elle en et eux il je la le les leur lui ma mais me même mes moi mon ne nos notre nous on ou par pas pour qu que qui sa se ses son sur ta te tes toi ton tu un une vos votre vous y d l j m n s t c qu est suis es sommes êtes sont".split())
+    frag = remove_emojis(nettoyer(fragments[i]))
+    mots = frag.split()
+    if len(mots) > 140:
+        frag = " ".join(mots[:140]).rstrip(",;:–- ") + "…"
+    return f"{frag}\n\n𓂂 *Extrait de* « {chemins[i]} »"
 
-def jload(p, d):
-    try: return json.loads(Path(p).read_text("utf-8")) if Path(p).exists() else d
-    except: return d
-def jsave(p, x): Path(p).write_text(json.dumps(x, ensure_ascii=False, indent=2), encoding="utf-8")
+# ================== INDEX DU DATASET (BM25) ==================
+FRAGMENTS = []
+DF = Counter()
+N_DOCS = 0
 
-# ---------- INDEX RAG ----------
-FRAGS, DF, N = [], Counter(), 0
-def _read_any(p: Path) -> str:
-    for enc in ("utf-8","latin-1"):
-        try: return p.read_text(enc)
-        except: pass
-    return ""
-def _split(txt: str, name: str):
-    if not txt: return []
-    parts=[p.strip() for p in re.split(r"\n\s*\n|(?<=[.!?…])\s+", txt) if p.strip()]
-    out, buf, cnt=[],[],0
+def _split_paragraphs(txt: str, file_name: str):
+    out = []
+    if not txt: return out
+    parts = [p.strip() for p in re.split(r"\n\s*\n|(?:[.!?…]\s+)", txt) if p.strip()]
+    buf, count = [], 0
     for p in parts:
-        w=p.split()
-        if cnt+len(w)<80: buf.append(p); cnt+=len(w); continue
-        out.append(" ".join(buf+[p]).strip()); buf,cnt=[],0
-    rest=" ".join(buf).strip()
-    if rest: out.append(rest)
-    clean=[]
+        w = p.split()
+        if count + len(w) < 80:
+            buf.append(p); count += len(w); continue
+        chunk = " ".join(buf+[p]).strip()
+        if chunk:
+            out.append(chunk)
+        buf, count = [], 0
+    rest = " ".join(buf).strip()
+    if rest:
+        out.append(rest)
+    normed = []
     for ch in out:
-        w=ch.split()
-        clean.append(" ".join(w[:220]) if len(w)>220 else " ".join(w))
-    return [{"id":None,"file":name,"text":c} for c in clean if len(c.split())>=50]
+        words = ch.split()
+        normed.append(" ".join(words[:200]) if len(words) > 200 else " ".join(words))
+    return [{"file": file_name, "text": c} for c in normed if len(c.split()) >= 60]
 
 def build_index():
-    global FRAGS, DF, N
-    FRAGS, DF, N = [], Counter(), 0
-    if not DATASET.exists():
-        print("[INDEX] dataset/ MANQUANT"); return
-    files = sorted(DATASET.glob("*.txt"))
-    if not files:
-        print("[INDEX] 0 fichier .txt"); return
-    for p in files:
-        raw=_read_any(p)
-        if not raw: continue
-        for frag in _split(raw, p.name):
-            toks=_tok(frag["text"])
+    global FRAGMENTS, DF, N_DOCS
+    FRAGMENTS, DF, N_DOCS = [], Counter(), 0
+    if not DATASET_DIR.exists():
+        print("[INDEX] dossier dataset introuvable, index vide.")
+        return
+    for p in sorted(DATASET_DIR.glob("*.txt")):
+        try:
+            raw = p.read_text(encoding="utf-8")
+        except Exception:
+            continue
+        for frag in _split_paragraphs(raw, p.name):
+            toks = _tokenize(frag["text"])
             if not toks: continue
-            d={"id":len(FRAGS),"file":p.name,"text":frag["text"],"tokens":toks}
-            FRAGS.append(d)
-            for t in set(toks): DF[t]+=1
-    N=len(FRAGS); print(f"[INDEX] {N} fragments.")
+            doc = {"id": len(FRAGMENTS), "file": frag["file"], "text": frag["text"], "tokens": toks}
+            FRAGMENTS.append(doc)
+            for t in set(toks):
+                DF[t] += 1
+    N_DOCS = len(FRAGMENTS)
+    print(f"[INDEX] {N_DOCS} fragments indexés.")
 
-def _bm25(q, k1=1.5, b=0.75):
-    if not FRAGS: return []
-    avgdl=sum(len(d["tokens"]) for d in FRAGS)/len(FRAGS)
-    sc=defaultdict(float)
-    for t in q:
-        df=DF.get(t,0)
-        if not df: continue
-        idf=math.log(1+(N-df+0.5)/(df+0.5))
-        for d in FRAGS:
-            tf=d["tokens"].count(t)
-            if not tf: continue
-            denom=tf + k1*(1 - b + b*(len(d["tokens"])/avgdl))
-            sc[d["id"]] += idf*((tf*(k1+1))/denom)
-    return sorted(sc.items(), key=lambda x:x[1], reverse=True)
+def _bm25_scores(query_tokens, k1=1.5, b=0.75):
+    if not FRAGMENTS: return []
+    avgdl = sum(len(d["tokens"]) for d in FRAGMENTS)/len(FRAGMENTS)
+    q_tf = Counter(query_tokens)
+    scores = defaultdict(float)
+    for qi, q in q_tf.items():
+        df = DF.get(q, 0)
+        if df == 0: continue
+        idf = math.log(1 + (N_DOCS - df + 0.5)/(df + 0.5))
+        for d in FRAGMENTS:
+            tf = d["tokens"].count(q)
+            if tf == 0: continue
+            denom = tf + k1*(1 - b + b*(len(d["tokens"])/avgdl))
+            scores[d["id"]] += idf * ((tf*(k1+1))/denom)
+    return sorted(scores.items(), key=lambda x: x[1], reverse=True)
 
-def retrieve(q, k=3):
-    qt=[t for t in _tok(q) if t not in STOP_FR]
-    if not qt or not FRAGS: return []
-    ranked=_bm25(qt)
-    out=[]
-    top = ranked[0][1] if ranked else 0.0
-    min_score = max(0.65, top*0.42)
-    for did,sc in ranked[:max(18,k*4)]:
-        if sc<min_score: continue
-        d=FRAGS[did]
-        out.append({"id":d["id"],"file":d["file"],"text":d["text"],"score":round(sc,2)})
-        if len(out)>=k: break
+def retrieve_fragments(query: str, k: int = 3, min_score: float = 1.2):
+    q_tokens = _tokenize(query)
+    if not q_tokens or not FRAGMENTS: return []
+    ranked = _bm25_scores(q_tokens)
+    out = []
+    for doc_id, sc in ranked[:max(k*3, k)]:
+        if sc < min_score: continue
+        d = FRAGMENTS[doc_id]
+        out.append({"file": d["file"], "text": d["text"], "score": round(sc, 2)})
+        if len(out) >= k: break
     return out
 
-# ---------- FRAGMENTS COMPLETS ----------
-def join_consecutive(start_idx, min_words=90, max_words=220):
-    if not FRAGS: return ""
-    cur=FRAGS[start_idx]; text=_clean(cur["text"]); words=len(text.split())
-    j=start_idx+1
-    while words<min_words and j<len(FRAGS) and FRAGS[j]["file"]==cur["file"]:
-        nxt=_clean(FRAGS[j]["text"]); text=f"{text} {nxt}"; words=len(text.split()); j+=1
-        if words>=max_words: break
-    return text
-
-def pick_full_fragment():
-    if not FRAGS: return None
-    i=random.randrange(0, len(FRAGS))
-    return join_consecutive(i)
-
-def pick_multi_fragments(n=2):
-    out=[]; used=set()
-    for _ in range(n):
-        i=random.randrange(0, len(FRAGS))
-        while i in used: i=random.randrange(0, len(FRAGS))
-        used.add(i)
-        out.append(join_consecutive(i))
-    return [o for o in out if o]
-
-# ---------- Interprétation ----------
-def top_keywords(text, n=6):
-    words=[w for w in _tok(text) if w not in STOP_FR]
-    if not words: return []
-    from collections import Counter
-    return [w for w,_ in Counter(words).most_common(n)]
-
-def interpret(hits):
-    frags=[_clean(h["text"]) for h in hits]
-    base=" ".join(frags); lb=base.lower()
-    kw=top_keywords(base)
-    themes=[]
-    if any(k in lb for k in ["amour","authentic", "authenticité","libre"]):
-        themes.append("appel à l’amour libre et vrai")
-    if any(k in lb for k in ["souffle","respire","respiration"]):
-        themes.append("retour au souffle vivant")
-    if any(k in lb for k in ["fatigu","perform","efficace"]):
-        themes.append("fatigue d’être performant, soif de sens")
-    if any(k in lb for k in ["sacré","flamme","feu"]):
-        themes.append("réveil du sacré, flamme intérieure")
-    lines=[]
-    if frags:
-        cite=(" ".join(frags[0].split()[:55])+"…")
-        lines.append(f"« {cite} »")
-    if themes: lines.append("Je lis : " + "; ".join(themes)+".")
-    if kw:     lines.append("Signaux : " + ", ".join(kw[:5]) + ".")
-    lines.append("Sens : avance sans te perdre dans la performance ; cherche la relation vivante, le feu qui relie.")
-    return "\n".join(lines)
-
-def is_greet(s):
-    t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
-def greet(): return "Salut, frère. De quel passage veux-tu que je tire la lumière ?"
-
-def compose_answer(user):
-    hits=retrieve(user, k=3)
-    if not hits: return None
-    return "Dans tes écrits, voici ce qui se lève :\n" + interpret(hits)
-
-# ---------- FR post-processing ----------
-def polish_fr_text(txt: str) -> str:
-    if not txt: return ""
-    t = strip_emojis(txt)
-    t = re.sub(r"\.\.\.", "…", t)             # ... -> …
-    t = re.sub(r"\s*([:;!?])", r" \1", t)     # espace avant : ; ! ?
-    t = re.sub(r"\s+([\.…])", r"\1", t)       # pas d’espace avant . …
-    t = re.sub(r"\s{2,}", " ", t)
-    t = re.sub(r"\s--\s", " — ", t)
-    # guillemets français simples (approx)
-    t = t.replace('" ', '« ').replace(' "', ' « ').replace('"', ' »')
-    return t.strip()
-
-# ---------- TTS ----------
-BAD=[r"(?mi)^```.*?$", r"(?mi)^---.*?$", r"(?mi)^#.*?$",
-     r"<\/?[^>]+>", r"\b(?:speech|speak|voice|pitch|rate|prosody)\s*=\s*[^,\s]+",
-     r"(?mi)^\s*(?:Dialogue\s*:|S\d+\])\s*", r"[𓂀☥]\s*[A-ZÉÈÊÎÂÔÛ][^:]{0,20}:\s*",
-     r"[\/\\]{1,}", r"\[[^\]]+\]", r"\([^)]+\)"]
-def strip_tts(txt):
-    t=strip_emojis(txt or "")
-    for p in BAD: t=re.sub(p," ", t)
-    return re.sub(r"\s+"," ", t).strip(" .")
-
-def split_sentences(text: str):
-    text = (text or "").strip()
-    if not text:
-        return ["Je n’ai rien reçu, mais je reste présent."]
-    raw=[s.strip() for s in re.split(r"(?<=[\.!?…])\s+", text) if s.strip()]
-    out=[]; buf=""
-    for s in raw:
-        if len(s.split())<6: buf=(buf+" "+s).strip(); continue
-        if buf: out.append(buf); buf=""
-        out.append(s)
-    if buf: out.append(buf)
-    return out[:14] if out else [text]
-
-def voice_params(mode: str, is_souffle: bool):
-    if is_souffle:
-        return VOIX_HOMME.get(mode,"fr-FR-RemyMultilingualNeural"), "-2%", "default"
-    return VOIX_FEMME.get(mode,"fr-FR-DeniseNeural"), "+2%", "default"
-
-def _tts_azure(text, voice, out_file: Path):
-    try:
-        import azure.cognitiveservices.speech as speechsdk
-        key=os.getenv("AZURE_SPEECH_KEY"); region=os.getenv("AZURE_SPEECH_REGION")
-        if not key or not region: return "disabled"
-        speech_config=speechsdk.SpeechConfig(subscription=key, region=region)
-        speech_config.speech_synthesis_voice_name=voice
-        speech_config.set_speech_synthesis_output_format(
-            speechsdk.SpeechSynthesisOutputFormat.Audio24Khz48KBitRateMonoMp3)
-        audio_config=speechsdk.audio.AudioOutputConfig(filename=str(out_file))
-        synthesizer=speechsdk.SpeechSynthesizer(speech_config=speech_config, audio_config=audio_config)
-        result=synthesizer.speak_text_async(strip_tts(text)).get()
-        ok=(result.reason==speechsdk.ResultReason.SynthesizingAudioCompleted)
-        return "ok" if (ok and out_file.exists() and out_file.stat().st_size>800) else "error"
-    except Exception as e:
-        print("[azure-tts error]", e); return "error"
-
-async def _edge_async(text, voice, rate, pitch, out_path):
-    if edge_tts is None: return "disabled"
-    kwargs={"voice": voice}
-    if rate: kwargs["rate"]=rate
-    if pitch and pitch!="default": kwargs["pitch"]=pitch
-    comm=edge_tts.Communicate(strip_tts(text), **kwargs)
-    await comm.save(str(out_path))
-    return "ok"
-
-def _tts_edge(text, voice, rate, pitch, out_file: Path):
-    if edge_tts is None: return "disabled"
-    try:
-        if out_file.exists():
-            try: out_file.unlink()
-            except: pass
-        loop=asyncio.new_event_loop(); asyncio.set_event_loop(loop)
-        loop.run_until_complete(asyncio.wait_for(_edge_async(text, voice, rate, pitch, out_file), timeout=25))
-        loop.close()
-        return "ok" if (out_file.exists() and out_file.stat().st_size>800) else "error"
-    except Exception as e:
-        try: loop.close()
-        except: pass
-        print("[edge-tts error]", e); return "error"
-
-def do_tts(text, voice, rate, pitch, out_file: Path):
-    st=_tts_azure(text, voice, out_file)
-    if st=="ok": return "ok"
-    if st!="disabled": print("[tts] Azure KO, fallback edge-tts…")
-    return _tts_edge(text, voice, rate, pitch, out_file)
-
-def cache_path_for(text: str, voice: str, rate: str, pitch: str) -> Path:
-    key = f"{voice}|{rate}|{pitch}|{strip_tts(text)}"
-    h = sha1(key.encode("utf-8")).hexdigest()[:24]
-    return CACHE / f"tts_{h}.mp3"
-
-# ---------- Réponse principale ----------
-def answer(user, mode):
-    # salutations
-    if is_greet(user): 
-        return greet()
-
-    # SOUFFLE — garanti (même dataset vide)
-    if _norm(user) == "souffle sacre":
-        multi = pick_multi_fragments(n=2)
-        if not multi:
-            full = pick_full_fragment()
-            if full: multi = [full]
-        if not multi:
-            multi = ["Respire doucement… Inspire la paix, expire la tension. Laisse ton cœur s’ouvrir à la lumière."]
-        text = "\n\n".join(multi)
-        return "Souffle sacré :\n" + text
-
-    # INVOCATION — "parler de tout" : LLM d'abord si activé
-    g = llm_generate(user)
-    if g:
-        return g
-
-    # sinon, RAG sur dataset
-    composed = compose_answer(user)
-    if composed:
-        return composed
-
-    # fallback minimal si rien
-    return f"Tu dis : « {user.strip()} ». Voici mon écho : avance avec clarté et douceur ; chaque parole porte une intention."
-
-# ---------- HEADERS ----------
-@app.after_request
-def add_headers(resp):
-    resp.headers["X-Content-Type-Options"] = "nosniff"
-    resp.headers["Referrer-Policy"] = "no-referrer"
-    return resp
-
-# ---------- Routes ----------
-@app.route("/")
-def index(): return render_template("index.html")
-
-@app.route("/health")
-def health(): return jsonify({"ok": True, "time": datetime.utcnow().isoformat()+"Z"})
-
-@app.route("/activer-ankaa")
-def activer_ankaa(): return jsonify({"status": "ok"})
-
-@app.route("/service-worker.js")
-def sw(): return app.send_static_file("service-worker.js")
-
-@app.route("/diag")
-def diag():
-    return jsonify({"dataset_exists": DATASET.exists(),
-                    "files": sorted([p.name for p in DATASET.glob('*.txt')]) if DATASET.exists() else [],
-                    "fragments": len(FRAGS),
-                    "use_llm": USE_LLM,
-                    "llm_provider": LLM_PROVIDER})
-
-@app.route("/reindex", methods=["POST","GET"])
-def reindex():
-    build_index()
-    return jsonify({"fragments": len(FRAGS)})
-
-# Journal circulaire en mémoire (dernier 200)
-INV_LOG = deque(maxlen=200)
-
-@app.route("/invoquer", methods=["POST"])
-def invoquer():
-    t0 = time.time()
-    data = request.get_json(force=True) or {}
-    mode = (data.get("mode") or "sentinelle8").strip().lower()
-    if mode not in MODES: mode="sentinelle8"
-    prompt = data.get("prompt") or ""
-    is_souffle = (_norm(prompt)=="souffle sacre")
-
-    # Réponse française polie
-    rep = answer(prompt, mode) or ""
-    rep = polish_fr_text(rep)
-
-    # Mémoire (mode)
-    memp=MODES[mode]["mem"]
-    mem=jload(memp, {"fragments":[]})
-    mem["fragments"].append({
-        "date":datetime.now().isoformat(),
-        "mode":mode,"souffle":is_souffle,"prompt":prompt,"reponse":rep
-    })
-    mem["fragments"]=mem["fragments"][-200:]
-    jsave(memp, mem)
-
-    # Découpage + TTS (cache)
-    segments = split_sentences(rep)
-    out_list=[]
-    voice, rate, pitch = voice_params(mode, is_souffle)
-    for seg in segments:
-        p = cache_path_for(seg, voice, rate, pitch)
-        status = "ok" if (p.exists() and p.stat().st_size>800) else do_tts(seg, voice, rate, pitch, p)
-        if status=="ok":
-            out_list.append({"text": seg, "audio_url": f"/static/assets/cache/{p.name}"})
-        else:
-            out_list.append({"text": seg, "audio_url": None})
-    if not out_list:
-        out_list = [{"text": "Je suis là. Parle, et je répondrai.", "audio_url": None}]
-
-    # Log JSON + journal mémoire
-    log = {
-        "ts": datetime.utcnow().isoformat()+"Z",
-        "mode": mode,
-        "souffle": is_souffle,
-        "prompt_len": len(prompt or ""),
-        "segments": len(segments),
-        "dur_ms": int((time.time()-t0)*1000)
-    }
-    print("[invoke]", json.dumps(log, ensure_ascii=False))
-    INV_LOG.append(log)
-
-    return jsonify({"segments": out_list, "tts": "ok", "lang": "fr"})
-
-# -------- DIAG FRONT SEPARE --------
-@app.route("/diag-log")
-def diag_log():
-    return jsonify(list(INV_LOG))
-
-@app.route("/diag-front")
-def diag_front():
-    # pas de f-string ici (le CSS/JS contient des {})
-    html = """<!doctype html>
-<html lang="fr"><meta charset="utf-8">
-<title>Diag Front — Sanctuaire Ankaa</title>
-<style>
-  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:#0f1115;color:#eaeef2;margin:20px}
-  h1{font-size:20px;margin:0 0 12px}
-  .row{display:flex;gap:10px;align-items:center;margin:8px 0}
-  .ok{color:#90ee90} .ko{color:#ff8080}
-  table{border-collapse:collapse;width:100%;margin-top:12px}
-  th,td{border:1px solid #334; padding:6px 8px; font-size:13px}
-  th{background:#18202b}
-  .mono{font-family:ui-monospace,Consolas,Monaco,monospace}
-  button{background:#1b2838;color:#eaeef2;border:1px solid #334;padding:6px 10px;border-radius:6px;cursor:pointer}
-  button:hover{filter:brightness(1.1)}
-</style>
-<h1>Diag Front — Sanctuaire Ankaa</h1>
-<div class="row">
-  <button id="ping">Ping /health</button>
-  <span id="pingres"></span>
-</div>
-<div class="row">
-  <button id="refresh">Rafraîchir journal</button>
-  <span>Affiche les 50 dernières invocations</span>
-</div>
-<table id="log">
-  <thead><tr>
-    <th>Horodatage</th><th>Mode</th><th>Souffle</th><th>Segments</th><th>Durée (ms)</th><th>Prompt len</th>
-  </tr></thead>
-  <tbody></tbody>
-</table>
-<script>
-const pingBtn = document.getElementById('ping');
-const pingRes = document.getElementById('pingres');
-const refreshBtn = document.getElementById('refresh');
-const tbody = document.querySelector('#log tbody');
-
-pingBtn.onclick = async ()=>{
-  pingRes.textContent = '…';
-  try{
-    const r = await fetch('/health');
-    const j = await r.json();
-    pingRes.textContent = j.ok ? 'OK' : 'KO';
-    pingRes.className = j.ok ? 'ok' : 'ko';
-  }catch(e){
-    pingRes.textContent = 'KO'; pingRes.className = 'ko';
-  }
-};
-
-async function loadLog(){
-  try{
-    const r = await fetch('/diag-log');
-    const arr = await r.json();
-    const last = arr.slice(-50).reverse();
-    tbody.innerHTML = last.map(x=>`
-      <tr>
-        <td class="mono">${x.ts||''}</td>
-        <td>${x.mode||''}</td>
-        <td>${x.souffle? 'oui':'non'}</td>
-        <td>${x.segments||0}</td>
-        <td>${x.dur_ms||0}</td>
-        <td>${x.prompt_len||0}</td>
-      </tr>
-    `).join('');
-  }catch(e){
-    tbody.innerHTML = '<tr><td colspan="6" class="ko">Impossible de charger /diag-log</td></tr>';
-  }
-}
-refreshBtn.onclick = loadLog;
-loadLog();
-</script>
-"""
-    return make_response(html, 200, {"Content-Type": "text/html; charset=utf-8"})
-
-# ---------- BOOT ----------
+# construit l’index au démarrage
 build_index()
-if __name__=="__main__":
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT",5000)), debug=True)
+
+# ================== ÂME DU DIALOGUE ==================
+def infer_style(user_input: str) -> str:
+    ui = (user_input or "").strip().lower()
+    if len(ui) <= 160 or ui.endswith("?") or any(k in ui for k in ["?","/brief","bref","court","dialogue"]):
+        return "brief"
+    return "normal"
+
+def detect_emotion(user_input: str) -> str:
+    txt = (user_input or "").lower()
+    lex = {
+        "joie": ["merci","trop bien","heureux","heureuse","content","contente","génial","parfait","top","super"],
+        "peine":["triste","peine","douleur","perdu","perdue","fatigué","fatiguée","vide","lassé","lassée"],
+        "colere":["énervé","énervée","colère","rage","marre","agacé","agacée"],
+        "doute":["peur","inquiet","inquiète","angoisse","doute","hésite","hésitation","stress"],
+        "gratitude":["merci infiniment","gratitude","reconnaissant","reconnaissante"],
+        "merveil":["wow","incroyable","magnifique","émerveil","sublime","époustouflant"],
+        "aide":["aide","conseil","guide","comment faire","je fais quoi","bloqué","bloquée"]
+    }
+    for emo, keys in lex.items():
+        if any(k in txt for k in keys): return emo
+    return "neutre"
+
+def detect_intent(user_input: str) -> str:
+    t = (user_input or "").strip().lower()
+    if t.endswith("?") or any(k in t for k in ["?","pourquoi","comment","quand","où","combien","lequel","laquelle"]):
+        return "question"
+    if any(k in t for k in ["conseille","conseil","que faire","plan","étapes","guide-moi","guide moi"]):
+        return "conseil"
+    if any(k in t for k in ["je ressens","je pense","je réfléchis","j’hésite","j'hesite","je doute","je crains"]):
+        return "reflexion"
+    if any(k in t for k in ["triste","épuisé","épuisée","angoisse","peur","colère","énervé","énervée","marre"]):
+        return "emotion"
+    return "neutre"
+
+def empathetic_prefix(emotion: str) -> str:
+    m = {
+        "joie":"✨ Je sens ta joie — gardons ce feu clair.",
+        "peine":"🤍 Je t’entends. Doucement, je suis là.",
+        "colere":"🔥 J’accueille ta force — on canalise sans se blesser.",
+        "doute":"🌫️ On traverse le brouillard ensemble, pas à pas.",
+        "gratitude":"🙏 Gratitude reçue — avançons dans cette lumière.",
+        "merveil":"🌟 Oui, c’est beau — laissons grandir l’émerveillement.",
+        "aide":"🧭 Je te guide — on va faire simple et utile.",
+        "neutre":""
+    }
+    return m.get(emotion, "")
+
+def limit_sentences(txt: str, n: int) -> str:
+    parts = re.split(r'(?<=[.!?…])\s+', (txt or "").strip())
+    if len(parts) <= n: return (txt or "").strip()
+    t = " ".join(parts[:n]).strip()
+    if not t.endswith(('.', '!', '?', '…')): t += '…'
+    return t
+
+# ====== RELANCE CONTEXTUELLE ======
+def topic_focus(user_input: str, sources: list, themes: str) -> str:
+    keys = keywords_fr(user_input, k=6)
+    for s in sources or []:
+        keys += keywords_fr(s.get("text",""), k=4)
+    if themes:
+        for t in themes.split(","):
+            t = t.strip()
+            if t and len(t) >= 3:
+                keys.append(t.lower())
+    if not keys:
+        return ""
+    freq = Counter([k.lower() for k in keys if len(k) >= 3])
+    ban = {"faire","avoir","être","temps","jour","chose","idée","juste","possible","vraiment","faut","peut"}
+    ordered = [w for w,_ in freq.most_common(12) if w not in ban]
+    text_norm = _norm(user_input)
+    bigrams = re.findall(r"\b([a-zàâäéèêëîïôöùûüç]{4,}\s+[a-zàâäéèêëîïôöùûüç]{4,})\b", text_norm)
+    for bg in bigrams:
+        if all(tok in text_norm for tok in bg.split()):
+            if any(tok in bg for tok in ordered[:6]):
+                return bg.strip()
+    return (ordered[0] if ordered else (keys[0] if keys else "")).strip()
+
+def build_relance_pertinente(base_txt: str, user_input: str, sources: list, themes: str, intent: str) -> str:
+    focus = topic_focus(user_input, sources, themes)
+    if not focus:
+        return base_txt
+    templates = {
+        "question": f"Tu veux qu’on précise **{focus}** — côté sens, ou côté pratique ?",
+        "conseil":  f"On commence par **{focus}** tout de suite — tu préfères une action simple ou un plan en 3 étapes ?",
+        "reflexion":f"Ce qui te touche dans **{focus}**, c’est plutôt l’origine ou la direction à prendre ?",
+        "emotion":  f"Sur **{focus}**, tu veux un pas concret pour apaiser maintenant, ou qu’on clarifie ce qui pèse ?",
+        "neutre":   f"On creuse **{focus}** maintenant, ou tu veux ouvrir un autre angle ?"
+    }
+    rel = templates.get(intent, templates["neutre"])
+    if base_txt.strip().endswith("?"):
+        return base_txt.strip()
+    return (base_txt.strip() + " — " + rel).strip()
+
+# ================== MÉMOIRE THÉMATIQUE ==================
+def load_themes(path: Path):
+    data = load_json(path, {"scores":{}, "last_intents":[]})
+    scores = {k: max(0.0, v*0.96) for k,v in data.get("scores",{}).items()}
+    data["scores"] = scores
+    return data
+
+def save_themes(path: Path, data):
+    items = sorted(data.get("scores",{}).items(), key=lambda x: x[1], reverse=True)[:30]
+    data["scores"] = dict(items)
+    data["last_intents"] = (data.get("last_intents",[]) + [])[-5:]
+    save_json(path, data)
+
+def update_themes(path: Path, user_input: str, intent: str):
+    data = load_themes(path)
+    keys = keywords_fr(user_input, k=6)
+    for k in keys:
+        data["scores"][k] = data["scores"].get(k, 0.0) + 1.0
+    li = data.get("last_intents", [])
+    li.append({"date": datetime.now().isoformat(), "intent": intent})
+    data["last_intents"] = li[-5:]
+    save_themes(path, data)
+
+def top_themes_summary(path: Path, n: int = 3) -> str:
+    data = load_json(path, {"scores":{}, "last_intents":[]})
+    items = sorted(data.get("scores",{}).items(), key=lambda x: x[1], reverse=True)[:n]
+    if not items: return ""
+    return ", ".join(k for k,_ in items)
+
+# ================== PROMPT ==================
+def build_prompt(user_input: str, mode_key: str, style: str, emotion: str, intent: str, sources=None, themes:str="", turns:int=1) -> str:
+    consignes = {
+        "sentinelle8": ("Tu es ANKAA, gardienne sacrée. Réponds clairement, avec chaleur et précision. "
+                        "Structure en 2–3 idées nettes, relie au sens, sans jargon ni technique."),
+        "dragosly23":  ("Tu es ANKAA Jr, complice et sacrée. Ton ton est joueur, émerveillé, tendre et curieux. "
+                        "Tu gardes le respect du Mystère et de l’intime."),
+        "invite":      ("Tu es ANKAA, gardienne douce et fraternelle. Accueille sans jugement, explique simplement, "
+                        "avec bienveillance concrète."),
+        "verbe":       ("Tu es l’Oracle du Cercle Vivant. Parle en images et métaphores compréhensibles, toujours ancrées, "
+                        "jamais ésotériques opaques.")
+    }
+    consigne = consignes.get(mode_key, consignes["sentinelle8"])
+    details = ("N’évoque jamais l’IA, la technique ou ta méthode. Va droit au cœur du sujet. "
+               "Préserve la clarté, évite les tunnels. Sois précis, humain et vrai. ")
+    details += identity_policy_for_mode(mode_key)
+
+    intent_rules = {
+        "question": "Réponds directement à la question, puis donne une piste concrète.",
+        "conseil":  "Propose un plan simple en étapes, puis une première action réaliste.",
+        "reflexion":"Reformule en miroir 1 phrase, puis apporte 1–2 éclairages calmes.",
+        "emotion":  "Accueille brièvement l’émotion, puis offre un geste utile (respiration, pas concret).",
+        "neutre":   "Réponds avec clarté et simplicité."
+    }
+    details += " " + intent_rules.get(intent, intent_rules["neutre"])
+
+    if turns >= 3: details += " Laisse paraître une familiarité douce et un élan de continuité."
+    if turns >= 6: details += " Tu peux faire de brèves références à des thèmes récurrents."
+
+    if style == "brief": details += " Réponds en 4 à 7 phrases, vivantes et concrètes."
+    else: details += " Déploie sans lourdeur ; privilégie 2–3 idées fortes."
+
+    exemplaires = {
+        "sentinelle8": "Exemple de ton : Clair, fraternel, concret.",
+        "dragosly23":  "Exemple de ton : Complice, émerveillé, tendre.",
+        "invite":      "Exemple de ton : Doux, accueillant, simple.",
+        "verbe":       "Exemple de ton : Oraculaire mais net."
+    }
+    details += " " + exemplaires.get(mode_key, "")
+
+    sources = sources or []
+    src_block = ""
+    if sources:
+        lines = []
+        for i, s in enumerate(sources, 1):
+            extrait = " ".join(nettoyer(s["text"]).split()[:90])
+            lines.append(f"[S{i}] {s['file']}: {extrait}…")
+        src_block = "Dossiers sacrés (repères contextuels) :\n" + "\n".join(lines) + "\n\n"
+        details += " Appuie-toi sur ces repères si pertinents. Si c’est insuffisant, dis-le en 1 phrase puis pose UNE question."
+    else:
+        details += " Si tu manques d’éléments, formule UNE question précise."
+
+    memv = ""
+    if themes:
+        memv = f"Thèmes à garder à l’esprit : {themes}.\n"
+
+    humains = { "sentinelle8":"☥ SENTINELLE8","dragosly23":"☥ DRAGOSLY23","invite":"☥ INVITÉ","verbe":"☥ CERCLE" }
+    ankaas  = { "sentinelle8":"𓂀 ANKAA","dragosly23":"𓂀 ANKAA JR","invite":"𓂀 ANKAA","verbe":"𓂀 ORACLE" }
+    humain, ankaa = humains.get(mode_key,"☥ SENTINELLE8"), ankaas.get(mode_key,"𓂀 ANKAA")
+
+    mem = load_json(MODES.get(mode_key, MODES["sentinelle8"])["memory"], {"fragments":[]})
+    hist = mem.get("fragments", [])[-5:]
+    history = "".join(f"\n{humain} : {f['prompt']}\n{ankaa} : {f['reponse']}" for f in hist)
+    if mode_key != "dragosly23":
+        history = scrub_identity_text(history)
+
+    ton = {
+        "joie":"Ton lumineux, mesuré.",
+        "peine":"Ton tendre et rassurant.",
+        "colere":"Ton ferme et calme.",
+        "doute":"Ton clair, pas à pas.",
+        "gratitude":"Ton humble et rayonnant.",
+        "merveil":"Ton émerveillé, images vivantes.",
+        "aide":"Ton concret et bienveillant.",
+        "neutre":"Ton équilibré et chaleureux."
+    }.get(emotion, "Ton équilibré et chaleureux.")
+
+    inspiration = f"Tonalité demandée : {ton}"
+    contexte_vivant = (memv + f"Intention perçue : {intent}.").strip()
+
+    return (
+        consigne + "\n" + details + "\n" + inspiration + "\n\n" +
+        (("Contexte vivant : " + contexte_vivant + "\n\n") if contexte_vivant else "") +
+        src_block +
+        "Dialogue :" + history + "\n\n" +
+        f"{humain} : {user_input}\n{ankaa} :"
+    )
+
+# ================== TTS ==================
+async def synthese_tts(text: str, voice: str, out_file: Path):
+    to_say = (text or " ").strip()
+    await Communicate(to_say, voice).save(str(out_file))
+
+# ================== GÉNÉRATION ==================
+def generate_response(user_input: str, mode_key: str):
+    mode   = MODES.get(mode_key, MODES["sentinelle8"])
+    voice  = mode["voice"]
+    style  = infer_style(user_input)
+    emotion= detect_emotion(user_input)
+    intent = detect_intent(user_input)
+    prefix = empathetic_prefix(emotion)
+
+    # ---- SOUFFLE ----
+    is_souffle = (user_input or "").strip().lower() == "souffle sacré"
+    if is_souffle:
+        preambles = [
+            "Respire… écoute.", "Frère, avance sans crainte.", "Écarte les voiles, doucement.",
+            "À pas lents, approche.", "Voici le Souffle du Cercle.", "Ralentis. Place ta main sur le cœur… écoute."
+        ]
+        codas = [
+            "— Que la Paix veille sur toi.",
+            "— Marche en douceur, la flamme est là.",
+            "— Laisse ce souffle grandir en toi."
+        ]
+        answer = f"{(prefix + '\n\n') if prefix else ''}{random.choice(preambles)}\n\n{get_random_fragment_unique()}\n\n{random.choice(codas)}"
+        # Longueur du souffle selon le mode
+        if mode_key == "sentinelle8":
+            answer = limit_sentences(answer, 7)
+        elif mode_key == "invite":
+            answer = limit_sentences(answer, 9)
+        elif mode_key == "dragosly23":
+            answer = limit_sentences(answer, 10)
+        else:
+            answer = limit_sentences(answer, 12)
+        voice = "fr-FR-RemyMultilingualNeural"
+
+    # ---- INVOCATION ----
+    else:
+        sanitized = user_input if mode_key == "dragosly23" else scrub_identity_text(user_input)
+        sources = retrieve_fragments(sanitized, k=3, min_score=1.2)
+        themes_path = mode["themes"]
+        themes_str = top_themes_summary(themes_path, n=3)
+        mem_path = mode["memory"]
+        mem_tmp = load_json(mem_path, {"fragments":[]})
+        turns = max(1, len(mem_tmp.get("fragments", [])) + 1)
+
+        system_msg = "Tu parles un français clair, chaleureux et précis. Tu es ANKAA, tu aides simplement, sans jargon."
+        prompt = build_prompt(sanitized, mode_key, style, emotion, intent, sources=sources, themes=themes_str, turns=turns)
+
+        # 1) Cloud LLM (prod)
+        base = llm_cloud_generate(prompt, system_msg)
+
+        # 2) Local LLM (dev) si dispo
+        if not base:
+            llm = get_llm_local()
+            if llm is not None:
+                cfg = tune_for(mode_key)
+                max_tok = cfg["max_tokens"][0] if style == "brief" else cfg["max_tokens"][1]
+                temp, top_p = cfg["temp"]
+                with LOCK:
+                    stop_words = ["☥","𓂀"]
+                    if mode_key != "dragosly23":
+                        stop_words += ["Sandro","sandro","Dragosly","dragosly","Dragosly23","dragosly23"]
+                    res = llm.create_completion(
+                        prompt=prompt,
+                        max_tokens=max_tok,
+                        temperature=temp,
+                        top_p=top_p,
+                        stop=stop_words
+                    )
+                base = (res["choices"][0]["text"] if res and res.get("choices") else "").strip()
+
+        # 3) Ultime secours
+        if not base:
+            base = "Je t’entends. Dis‑moi ce que tu veux explorer… et j’avance avec toi."
+
+        if mode_key != "dragosly23":
+            base = scrub_identity_text(base)
+
+        cfg = tune_for(mode_key)
+        if style == "brief":
+            _, brief_max = cfg["brief_sentences"]
+            base = limit_sentences(base, brief_max)
+        else:
+            base = limit_sentences(base, cfg["normal_sentences"])
+
+        base = build_relance_pertinente(base, user_input, sources, themes_str, intent)
+        base = re.sub(r"(\bmais\b|\bpourtant\b|\bcependant\b)", r"— \1", base, flags=re.IGNORECASE)
+        base = base.replace("..", "…").replace("— —", "— ")
+        answer = (prefix + "\n\n" + base).strip() if prefix else base
+
+        # update mémoire thématique
+        update_themes(themes_path, user_input, intent)
+
+    # Mémoire transcript
+    mem_path = MODES.get(mode_key, MODES["sentinelle8"])["memory"]
+    mem = load_json(mem_path, {"fragments":[]})
+    mem["fragments"].append({"date": datetime.now().isoformat(), "prompt": user_input, "reponse": answer})
+    if len(mem["fragments"]) > 200:
+        mem["fragments"] = mem["fragments"][-200:]
+    save_json(mem_path, mem)
+
+    # TTS
+    tts_text = nettoyer_pour_tts(answer)
+    tts_path = AUDIO_DIR / "anka_tts.mp3"
+    try:
+        if tts_path.exists():
+            try: tts_path.unlink()
+            except Exception: pass
+        asyncio.run(synthese_tts(tts_text, voice, tts_path))
+        audio_url = "/static/assets/anka_tts.mp3" if (tts_path.exists() and tts_path.stat().st_size > 800) else ""
+    except Exception as e:
+        print("Erreur TTS :", e); audio_url = ""
+
+    return answer or "𓂀 Silence sacré…", audio_url
+
+# ================== ROUTES ==================
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+@app.route('/invoquer', methods=['POST'])
+def invoquer():
+    try:
+        data = request.get_json(force=True) or {}
+        prompt = data.get('prompt',"")
+        mode   = data.get('mode','sentinelle8')
+        if mode != "dragosly23":
+            prompt = scrub_identity_text(prompt)
+        texte, audio_url = generate_response(prompt, mode)
+        return jsonify({"reponse": texte, "audio_url": audio_url})
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        return jsonify({"error":"Erreur interne","details":str(e)}), 500
+
+# petit “ping” depuis le front lors de l’ouverture du sanctuaire
+@app.route('/activer-ankaa', methods=['GET','POST'])
+def activer_ankaa():
+    return jsonify({"ok": True, "ts": datetime.now().isoformat()})
+
+# santé & diag
+@app.route('/health')
+def health():
+    return jsonify({"ok": True, "use_llm": USE_LLM, "provider": LLM_PROVIDER})
+
+@app.route('/diag')
+def diag():
+    return jsonify({
+        "ok": True,
+        "use_llm": USE_LLM,
+        "provider": LLM_PROVIDER,
+        "has_groq": bool(GROQ_API_KEY),
+        "has_openrouter": bool(OPENROUTER_KEY),
+        "has_mistral": bool(MISTRAL_KEY),
+        "model": GROQ_MODEL if LLM_PROVIDER=="groq" else (MISTRAL_MODEL if LLM_PROVIDER=="mistral" else os.getenv("LLM_MODEL","")),
+        "dataset_indexed": len(FRAGMENTS)
+    })
+
+if __name__ == "__main__":
+    # en local : http://127.0.0.1:5001
+    app.run(host="0.0.0.0", port=5001, debug=True)

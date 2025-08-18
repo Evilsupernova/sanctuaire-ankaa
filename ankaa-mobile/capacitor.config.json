@@ -1,0 +1,11 @@
+{
+  "appId": "com.sentinelle.ankaa",
+  "appName": "Sanctuaire Ankaa",
+  "webDir": "www",
+  "server": {
+    "url": "https://sanctuaire-ankaa.onrender.com",
+    "cleartext": false
+  },
+  "ios": { "contentInset": "always" },
+  "android": { "allowMixedContent": false }
+}
