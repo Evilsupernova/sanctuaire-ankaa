@@ -21,7 +21,7 @@ app = Flask(__name__, static_url_path="/static")
 LOCK = Lock()
 
 BASE_DIR     = Path(__file__).parent
-DATASET_DIR  = Path.home() / "Documents" / "ankaa" / "dataset"
+DATASET_DIR  = BASE_DIR / "dataset"
 MEMORY_DIR   = BASE_DIR / "memory"
 AUDIO_DIR    = BASE_DIR / "static" / "assets"
 MODELS_DIR   = BASE_DIR.parent / "models"
