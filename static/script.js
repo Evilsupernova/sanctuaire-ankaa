@@ -8,7 +8,7 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('resize', setVh);
   window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
 
-  // -------- Unlock audio on first tap (iOS) --------
+  // -------- Unlock audio (iOS) --------
   (function unlock(){
     const ids = ['musique-sacree','tts-player','s-click','s-open','s-close','s-mode'];
     const list = ids.map(id => document.getElementById(id));
@@ -31,10 +31,10 @@ document.addEventListener('DOMContentLoaded', () => {
   const btnGo   = document.getElementById('btn-verbe');
   const zone    = document.getElementById('zone-invocation');
 
-  const btnOpen = document.getElementById('bouton-sanctuaire'); // ☥ bas-centre
-  const btnMode = document.getElementById('btn-mode-mini');     // clé d’Ankh (re-select mode)
-  const btnVeil = document.getElementById('btn-veille-mini');   // souffle sacré
-  const btnVocal= document.getElementById('btn-vocal');         // micro
+  const btnOpen = document.getElementById('bouton-sanctuaire'); // ☥
+  const btnMode = document.getElementById('btn-mode-mini');     // 𓋹
+  const btnVeil = document.getElementById('btn-veille-mini');   // 𓂀 souffle
+  const btnVocal= document.getElementById('btn-vocal');         // 𓆱 micro
 
   const tts     = document.getElementById('tts-player');
   const bgm     = document.getElementById('musique-sacree');
@@ -49,25 +49,20 @@ document.addEventListener('DOMContentLoaded', () => {
   const ptxt    = document.getElementById('papyrus-texte');
   const overlayEl = document.getElementById('mode-overlay');
 
-  // Rendre le player TTS "présent" (autoplay-friendly) mais invisible
-  if(tts){
-    tts.style.display = 'block';
-    tts.style.width = '0';
-    tts.style.height = '0';
-    tts.style.opacity = '0';
-  }
+  // Player TTS présent mais invisible (autoplay-friendly)
+  if(tts){ tts.style.display='block'; tts.style.width='0'; tts.style.height='0'; tts.style.opacity='0'; }
 
-  // -------- App state --------
+  // -------- App State (machine simple) --------
   const State = {
     sanctuaire:false,
     mode:null,
-    vocal:false,          // mode vocal désiré par l’utilisateur
-    recognizing:false,    // état interne de la reco WebSpeech
+    vocal:false,            // souhait utilisateur
+    recognizing:false,      // état SR
     souffle:false,
     tts:false,
-    souffleNext:null,     // timeout chain (pas d'interval)
+    souffleNext:null,
     isPlaying:false,
-    playSeq:0,            // jeton pour annuler une lecture en cours
+    playSeq:0,
     papyrusHideTimer:null
   };
 
@@ -77,77 +72,48 @@ document.addEventListener('DOMContentLoaded', () => {
   const flash=(el, ms=220)=>{ setActive(el,true); setTimeout(()=>setActive(el,false), ms); };
 
   // -------- Volumes --------
-  const VOLUME_BASE=0.10, VOLUME_DUCK=0.05; // musique un peu plus présente
-  if(bgm) bgm.volume=VOLUME_BASE;
-  if(tts) tts.volume=1.0;
+  const VOLUME_BASE = 0.10, VOLUME_DUCK = 0.05; // réglage validé
+  if(bgm) bgm.volume = VOLUME_BASE;
+  if(tts) tts.volume = 1.0;
 
-  function restoreVolume(){
-    if(bgm) bgm.volume = VOLUME_BASE;
-    State.tts = false;
-  }
+  function restoreVolume(){ if(bgm) bgm.volume = VOLUME_BASE; State.tts=false; }
 
-  // Ducking + pause de la reco (on NE coupe PAS le mode vocal ; reprise ensuite)
+  // Ducking + pause reco pendant TTS
   if(tts && bgm){
     tts.addEventListener('play', ()=>{
       State.tts = true;
       bgm.volume = VOLUME_DUCK;
-      pauseReco(); // on stoppe juste la reco, on ne désactive pas le mode vocal
+      pauseReco();
     });
     const restore=()=>{
       restoreVolume();
-      // si l’utilisateur avait activé le vocal, on relance la reco après la fin du TTS
       if(State.vocal && !State.recognizing){ startReco(); }
     };
     tts.addEventListener('ended', restore);
     tts.addEventListener('pause', restore);
+    tts.addEventListener('error', restore);
   }
 
-  // -------- Resets --------
-  function clearPapyrusTimer(){
-    if(State.papyrusHideTimer){ clearTimeout(State.papyrusHideTimer); State.papyrusHideTimer = null; }
-  }
+  // -------- Papyrus --------
+  function clearPapyrusTimer(){ if(State.papyrusHideTimer){ clearTimeout(State.papyrusHideTimer); State.papyrusHideTimer=null; } }
   function scheduleHidePapyrus(delay=10000){
     clearPapyrusTimer();
     State.papyrusHideTimer = setTimeout(()=>{
       if(!State.isPlaying && pap){ pap.style.display='none'; ptxt.textContent=''; }
     }, delay);
   }
+  function showPap(){ if(!pap) return; clearPapyrusTimer(); pap.style.display='flex'; ptxt.textContent=''; ptxt.scrollTop=0; }
+
   function stopSpeaking(){
-    State.playSeq++; // annule toute lecture en cours
+    State.playSeq++;
     if(tts){ try{ tts.pause(); }catch{} tts.currentTime=0; }
     eye && eye.classList.remove('playing');
     aura && aura.classList.remove('active');
     State.isPlaying=false;
-    scheduleHidePapyrus(400); // referme vite si on a stoppé manuellement
-  }
-  function stopReco(){
-    if(!recog) return;
-    try{ recog.stop(); }catch{}
-    State.recognizing = false;
-  }
-  function pauseReco(){ // pause "douce" pendant TTS
-    stopReco(); // on ne modifie pas State.vocal ici
-  }
-  function stopVocal(){
-    if(!State.vocal) return;
-    State.vocal=false;
-    setActive(btnVocal,false);
-    stopReco();
-    toast("Vocal désactivé.");
-  }
-  function stopSouffle(){
-    if(!State.souffle) return;
-    State.souffle=false;
-    setActive(btnVeil,false);
-    if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; }
-    stopSpeaking(); // coupe aussi toute lecture en cours
-    toast("Souffle sacré désactivé.");
-  }
-  function hardReset(){
-    stopVocal(); stopSouffle(); stopSpeaking(); setActive(btnGo,false);
+    scheduleHidePapyrus(400);
   }
 
-  // -------- Overlay (sélection de mode) --------
+  // -------- Overlay (mode) --------
   const overlay={
     open(block=false){
       overlayEl?.classList.remove('overlay-hidden'); overlayEl?.setAttribute('aria-hidden','false');
@@ -161,20 +127,18 @@ document.addEventListener('DOMContentLoaded', () => {
       safePlay(sClose);
     }
   };
-  // ouvre l’overlay À TOUT MOMENT (même pendant chat)
   btnMode?.addEventListener('click', ()=> overlay.open(false));
   document.addEventListener('keydown', e=>{ if(e.key==='Escape'&&!overlayEl.classList.contains('overlay-hidden')) overlay.close(); });
 
-  // -------- Sanctuaire (activation) --------
-  if(zone) zone.style.display='none';
-  disable(btnGo,true); disable(input,true);
+  // -------- Activation Sanctuaire --------
+  if(zone) zone.style.display='none'; disable(btnGo,true); disable(input,true);
   btnOpen?.addEventListener('click', ()=>{
     fetch('/activer-ankaa').catch(()=>{});
     State.sanctuaire=true;
     if(zone) zone.style.display='grid';
     safePlay(bgm); safePlay(sOpen);
-    overlay.open(true);           // on force le choix d’un mode au début
-    btnOpen.style.display='none'; // la clé bas disparaît après activation
+    overlay.open(true);
+    btnOpen.style.display='none';
   });
 
   // -------- Sélection mode --------
@@ -189,24 +153,19 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
   });
 
-  // -------- Micro --------
+  // -------- Micro (Web Speech) --------
   let recog=null;
   function initSpeech(){
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if(!SR) return null;
     const r=new SR();
-    r.lang='fr-FR';
-    r.interimResults=false;
-    r.continuous=false;
-    r.maxAlternatives=1;
-
+    r.lang='fr-FR'; r.interimResults=false; r.continuous=false; r.maxAlternatives=1;
     r.onresult=e=>{
       const txt=(e.results[0]&&e.results[0][0]&&e.results[0][0].transcript)||'';
       if(txt){ input.value=txt; send(); }
     };
     r.onend = ()=>{
       State.recognizing=false;
-      // si le mode vocal est toujours désiré et qu’aucun TTS ne joue, on reprend
       if(State.vocal && !State.tts){
         try{ r.start(); State.recognizing=true; }catch{}
       }
@@ -221,40 +180,67 @@ document.addEventListener('DOMContentLoaded', () => {
       try{ recog.start(); State.recognizing=true; }catch{}
     }
   }
+  function pauseReco(){ if(!recog) return; try{ recog.stop(); }catch{} State.recognizing=false; }
+  function stopVocal(){ if(!State.vocal) return; State.vocal=false; setActive(btnVocal,false); pauseReco(); toast("Vocal désactivé."); }
   function startVocal(){
     if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    startReco();
-    State.vocal=true; setActive(btnVocal,true);
-    toast("Vocal activé : parle, je t’écoute.");
+    startReco(); State.vocal=true; setActive(btnVocal,true); toast("Vocal activé : parle, je t’écoute.");
   }
   btnVocal?.addEventListener('click', ()=>{ if(State.vocal){ stopVocal(); } else { startVocal(); } });
 
-  // -------- Papyrus + segments --------
-  function showPap(){
-    if(!pap) return;
-    clearPapyrusTimer();
-    pap.style.display='flex';
-    ptxt.textContent=''; ptxt.scrollTop=0;
+  // -------- Réseau (anti-spam / abort / timeout) --------
+  let currentAbort = null;
+  const NET_TIMEOUT_MS = 15000;
+  let lastSendAt = 0;
+  const DEBOUNCE_MS = 400;
+
+  function abortCurrent(){ if(currentAbort){ try{ currentAbort.abort(); }catch{} currentAbort=null; } }
+  function withTimeout(p, ms){
+    return new Promise((resolve, reject)=>{
+      const t = setTimeout(()=>reject(new Error("timeout")), ms);
+      p.then(v=>{ clearTimeout(t); resolve(v); })
+       .catch(e=>{ clearTimeout(t); reject(e); });
+    });
+  }
+
+  async function fetchSegments(prompt){
+    abortCurrent();
+    currentAbort = new AbortController();
+    const mode = State.mode || localStorage.getItem('mode') || "sentinelle8";
+    const req = fetch("/invoquer",{
+      method:"POST",
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({prompt,mode}),
+      signal: currentAbort.signal
+    });
+    try{
+      const r = await withTimeout(req, NET_TIMEOUT_MS);
+      const data = await r.json().catch(()=>null);
+      return (data && data.segments) ? data.segments : [];
+    }catch(e){
+      if(e.name === 'AbortError') return [];
+      throw e;
+    }finally{
+      currentAbort = null;
+    }
   }
 
   function estimateMsForText(text){
     const words = (text||'').trim().split(/\s+/).filter(Boolean).length;
-    // ~2.3 mots/s + marge mini
     return Math.max(1200, Math.round((words/2.3)*1000));
   }
 
   async function playSegments(segments){
     if(!segments || !segments.length) return;
-    const mySeq = ++State.playSeq; // jeton propre à cette lecture
+    const mySeq = ++State.playSeq;
     State.isPlaying=true; showPap();
     eye && eye.classList.add('playing'); aura && aura.classList.add('active');
 
     for (let i=0;i<segments.length;i++){
-      if(mySeq !== State.playSeq) return; // annulé
+      if(mySeq !== State.playSeq) return;
       const seg=segments[i];
       await new Promise((resolve)=>{
         const text = seg.text || '';
-        // animation "typer"
         let typer=null;
         const startTyper=(durationMs)=>{
           const step=Math.max(14, Math.round(durationMs/Math.max(22, text.length||1)));
@@ -266,7 +252,6 @@ document.addEventListener('DOMContentLoaded', () => {
           }, step);
         };
 
-        // Si pas d'audio_url => fallback texte-only (pas de ducking, pas de tts.play)
         if(!seg.audio_url){
           const d = estimateMsForText(text);
           startTyper(d);
@@ -274,7 +259,6 @@ document.addEventListener('DOMContentLoaded', () => {
           return;
         }
 
-        // Lecture TTS avec fallback de durée si metadata KO
         const done = ()=>{
           if(typer){ clearInterval(typer); typer=null; }
           ptxt.textContent+=(i<segments.length-1?" ":"");
@@ -291,11 +275,9 @@ document.addEventListener('DOMContentLoaded', () => {
           const d = metaDur || estimateMsForText(text);
           startTyper(d);
           try{ tts.play(); }catch{}
-          // sécurité : si l’évènement ended ne vient pas, on force la suite
           setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; done(); } }, Math.max(d+200, 1400));
         };
 
-        // si loadedmetadata ne vient pas (certaines plateformes), on force quand même
         metadataTimeout = setTimeout(()=>{
           if(endedOrTimeout) return;
           const d = estimateMsForText(text);
@@ -310,33 +292,30 @@ document.addEventListener('DOMContentLoaded', () => {
           if(metadataTimeout) clearTimeout(metadataTimeout);
           done();
         };
+        tts.onerror = ()=>{
+          if(endedOrTimeout) return;
+          endedOrTimeout = true;
+          if(metadataTimeout) clearTimeout(metadataTimeout);
+          done();
+        };
       });
-      if(mySeq !== State.playSeq) return; // annulé en cours
+      if(mySeq !== State.playSeq) return;
     }
 
     eye && eye.classList.remove('playing'); aura && aura.classList.remove('active');
     State.isPlaying=false;
-    scheduleHidePapyrus(10000); // cache après 10s si plus rien ne joue
-  }
-
-  // -------- Réseau --------
-  async function fetchSegments(prompt){
-    const mode = State.mode || localStorage.getItem('mode') || "sentinelle8";
-    const r = await fetch("/invoquer",{
-      method:"POST",
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({prompt,mode})
-    });
-    const data = await r.json().catch(()=>null);
-    return (data && data.segments) ? data.segments : [];
+    // Sync visuelle des toggles
+    setActive(btnGo,false);
+    setActive(btnVeil, !!State.souffle);
+    setActive(btnVocal, !!State.vocal);
+    scheduleHidePapyrus(10000);
   }
 
   async function invokeAndPlay(prompt, {respectSouffle=true}={}){
+    // fermeture douce du papyrus si on relance
+    scheduleHidePapyrus(200);
     const segments = await fetchSegments(prompt);
-    if(respectSouffle && _norm(prompt)==='souffle sacré' && !State.souffle){
-      // le souffle a été coupé entre-temps : on n’enchaîne pas
-      return;
-    }
+    if(respectSouffle && _norm(prompt)==='souffle sacré' && !State.souffle){ return; }
     if(!segments.length){ toast("Rien à lire."); return; }
     await playSegments(segments);
   }
@@ -352,23 +331,45 @@ document.addEventListener('DOMContentLoaded', () => {
 
   async function send(){
     if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
+    const now = Date.now();
+    if(now - lastSendAt < DEBOUNCE_MS) return;
+    lastSendAt = now;
+
     const prompt=(input?.value||"").trim(); if(!prompt) return;
     setActive(btnGo,true); safePlay(sClick);
-    // couper tout ce qui tourne (pour éviter superpositions)
-    stopSouffle(); stopReco(); stopSpeaking();
-    await invokeAndPlay(prompt, {respectSouffle:false});
-    setActive(btnGo,false); input.value="";
-    // si le vocal était ON, on relance la reco (et pas pendant un TTS)
-    if(State.vocal && !State.tts && !State.recognizing){ startReco(); }
+
+    // couper ce qui tourne + annuler souffle pendant requête utilisateur
+    stopSouffle(); pauseReco(); stopSpeaking();
+
+    disable(btnGo,true); disable(input,true);
+    try{
+      await invokeAndPlay(prompt, {respectSouffle:false});
+    }catch(e){
+      if(String(e).includes("timeout")) toast("Le serveur met trop de temps… Réessaie.");
+      else toast("Invocation impossible. Vérifie la connexion.");
+    }finally{
+      disable(btnGo,false); disable(input,false);
+      setActive(btnGo,false); input.value="";
+      if(State.vocal && !State.tts && !State.recognizing){ startReco(); }
+    }
   }
   btnGo?.addEventListener('click', send);
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') send(); });
 
-  // -------- Souffle (toggle fiable + relance) --------
+  // -------- Souffle --------
+  function stopSouffle(){
+    if(!State.souffle) return;
+    State.souffle=false; setActive(btnVeil,false);
+    if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; }
+    stopSpeaking();
+    toast("Souffle sacré désactivé.");
+  }
   function planifierSouffleSuivant(){
     if(!State.souffle) return;
     if(State.souffleNext){ clearTimeout(State.souffleNext); }
-    State.souffleNext = setTimeout(()=>{ if(State.souffle) lancerSouffle(); }, 35000);
+    State.souffleNext = setTimeout(()=>{
+      if(State.souffle && !State.isPlaying){ lancerSouffle(); }
+    }, 35000);
   }
   async function lancerSouffle(){
     if(!State.sanctuaire || !State.souffle) return;
@@ -377,23 +378,20 @@ document.addEventListener('DOMContentLoaded', () => {
   }
   btnVeil?.addEventListener('click', ()=>{
     if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    if(State.souffle){
-      stopSouffle();
-    } else {
+    if(State.souffle){ stopSouffle(); }
+    else{
       State.souffle=true; setActive(btnVeil,true);
       toast("Souffle sacré activé.");
-      // si quelque chose joue, on attend la fin ; sinon on lance
       if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); }
     }
   });
 
+  // -------- Vocal toggle --------
+  btnVocal?.addEventListener('click', ()=>{ if(State.vocal){ stopVocal(); } else { startVocal(); } });
+
   // -------- Toast --------
   function toast(msg){
-    const d=document.createElement('div');
-    d.className='toast';
-    d.setAttribute('role','status');
-    d.textContent=msg;
-    document.body.appendChild(d);
-    setTimeout(()=>d.remove(), 1800);
+    const d=document.createElement('div'); d.className='toast'; d.setAttribute('role','status'); d.textContent=msg;
+    document.body.appendChild(d); setTimeout(()=>d.remove(), 1800);
   }
 });
