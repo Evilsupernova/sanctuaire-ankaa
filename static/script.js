@@ -1,11 +1,11 @@
 document.addEventListener('DOMContentLoaded', () => {
-  // ---------------- Layout safe viewport (iOS) ----------------
-  function setVh(){ const vh = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+  // -------- Safe viewport (iOS) --------
+  function setVh(){ const vh=window.visualViewport?window.visualViewport.height:window.innerHeight;
     document.documentElement.style.setProperty('--vh', `${vh/100}px`); }
   setVh(); window.addEventListener('resize', setVh);
   window.visualViewport && window.visualViewport.addEventListener('resize', setVh);
 
-  // ---------------- Unlock audio on first tap (iOS) ----------------
+  // -------- Unlock audio on first tap (iOS) --------
   (function unlock(){
     const ids=['musique-sacree','tts-player','s-click','s-open','s-close','s-mode'];
     const list=ids.map(id=>document.getElementById(id));
@@ -15,19 +15,15 @@ document.addEventListener('DOMContentLoaded', () => {
     window.addEventListener('click', arm,{once:true,passive:true});
   })();
 
-  // ---------------- Refs ----------------
+  // -------- Refs --------
   const input=document.getElementById('verbe');
   const btnGo=document.getElementById('btn-verbe');
   const zone=document.getElementById('zone-invocation');
 
   const btnOpen=document.getElementById('bouton-sanctuaire'); // ☥ bas-centre
-  const btnMode=document.getElementById('btn-mode-mini');
-  const btnVeil=document.getElementById('btn-veille-mini');
-  const btnVocal=document.getElementById('btn-vocal');
-
-  const tools=document.getElementById('tools-column');
-  const header=document.getElementById('en-tete'); // titre + phrase
-  if(tools && header){ header.insertAdjacentElement('afterend', tools); } // -> entre titre et oeil
+  const btnMode=document.getElementById('btn-mode-mini');     // clé d’Ankh (re-select mode)
+  const btnVeil=document.getElementById('btn-veille-mini');   // souffle sacré
+  const btnVocal=document.getElementById('btn-vocal');        // micro
 
   const tts=document.getElementById('tts-player');
   const bgm=document.getElementById('musique-sacree');
@@ -42,67 +38,63 @@ document.addEventListener('DOMContentLoaded', () => {
   const ptxt=document.getElementById('papyrus-texte');
   const overlayEl=document.getElementById('mode-overlay');
 
-  // ---------------- App state (anti-bug) ----------------
+  // -------- App state --------
   const State = {
     sanctuaire:false,
-    mode:null,
+    mode: null,
     vocal:false,
     souffle:false,
     tts:false,
-    timerSouffle:null,
-    playingPromise:null,
+    souffleTimer:null,
+    souffleNext:null, // timeout chain (pas d'interval pour éviter les bugs)
+    isPlaying:false
   };
 
-  // helpers UI
   const setActive=(el,on)=>{ if(!el) return; el.classList.toggle('active', !!on); el.setAttribute('aria-pressed', !!on); };
   const disable=(el,on)=>{ if(!el) return; el.disabled=!!on; el.setAttribute('aria-disabled', !!on); };
   const safePlay=a=>{ if(!a) return; a.currentTime=0; const p=a.play(); if(p&&p.catch) p.catch(()=>{}); };
 
-  // ---------------- Volumes & ducking ----------------
-  const VOLUME_BASE=0.18, VOLUME_DUCK=0.06; // musique plus présente mais douce
+  // -------- Volumes --------
+  const VOLUME_BASE=0.22, VOLUME_DUCK=0.08; // musique un peu plus présente
   if(bgm) bgm.volume=VOLUME_BASE;
   if(tts) tts.volume=1.0;
 
+  // Ducking + gestion micro (ne coupe PAS le souffle)
   if(tts && bgm){
-    tts.addEventListener('play', ()=>{
-      State.tts=true; bgm.volume=VOLUME_DUCK;
-      // toute lecture TTS coupe le micro et le souffle
-      stopVocal(); stopSouffle();
-    });
+    tts.addEventListener('play', ()=>{ State.tts=true; bgm.volume=VOLUME_DUCK; stopVocal(); });
     const restore=()=>{ State.tts=false; bgm.volume=VOLUME_BASE; };
     tts.addEventListener('ended', restore);
     tts.addEventListener('pause', restore);
   }
 
-  // ---------------- Sanitary reset ----------------
+  // -------- Resets --------
   function stopSpeaking(){
-    if(tts){ tts.pause(); tts.currentTime=0; }
+    if(tts){ try{ tts.pause(); }catch{} tts.currentTime=0; }
     if(pap){ ptxt.textContent=''; pap.style.display='none'; }
     eye && eye.classList.remove('playing'); aura && aura.classList.remove('active');
+    State.isPlaying=false;
   }
-
   function stopVocal(){
     if(!State.vocal) return;
     State.vocal=false; setActive(btnVocal,false);
     if(recog){ try{ recog.stop(); }catch{} }
   }
-
   function stopSouffle(){
     if(!State.souffle) return;
     State.souffle=false; setActive(btnVeil,false);
-    if(State.timerSouffle){ clearInterval(State.timerSouffle); State.timerSouffle=null; }
+    if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; }
   }
-
   function hardReset(){
-    stopVocal(); stopSouffle(); stopSpeaking();
-    setActive(btnGo,false);
+    stopVocal(); stopSouffle(); stopSpeaking(); setActive(btnGo,false);
   }
 
-  // ---------------- Overlay mode ----------------
+  // -------- Overlay (sélection de mode) --------
   const overlay={
     open(block=false){
       overlayEl?.classList.remove('overlay-hidden'); overlayEl?.setAttribute('aria-hidden','false');
       if(block){ disable(btnGo,true); disable(input,true); }
+      // petit feedback visuel temporaire sur la clé
+      setActive(btnMode,true); setTimeout(()=>setActive(btnMode,false), 220);
       safePlay(sOpen);
     },
     close(){
@@ -110,21 +102,23 @@ document.addEventListener('DOMContentLoaded', () => {
       disable(btnGo,false); disable(input,false); safePlay(sClose);
     }
   };
+  // ouvre l’overlay À TOUT MOMENT (même pendant chat)
+  btnMode?.addEventListener('click', ()=> overlay.open(false));
   document.addEventListener('keydown', e=>{ if(e.key==='Escape'&&!overlayEl.classList.contains('overlay-hidden')) overlay.close(); });
 
-  // ---------------- Sanctuaire (bouton bas) ----------------
+  // -------- Sanctuaire (activation) --------
   if(zone) zone.style.display='none'; disable(btnGo,true); disable(input,true);
   btnOpen?.addEventListener('click', ()=>{
     fetch('/activer-ankaa').catch(()=>{});
     State.sanctuaire=true; if(zone) zone.style.display='grid';
     safePlay(bgm); safePlay(sOpen);
-    overlay.open(true);
-    btnOpen.style.display='none';
+    overlay.open(true);           // on force le choix d’un mode au début
+    btnOpen.style.display='none'; // la clé bas disparaît après activation
   });
 
-  // ---------------- Sélection de mode ----------------
+  // -------- Sélection mode --------
   function setMode(k){
-    State.mode=k; localStorage.setItem('mode', k);
+    State.mode=k; try{ localStorage.setItem('mode', k); }catch(_){}
     overlay.close(); safePlay(sMode);
     disable(btnGo,false); disable(input,false);
   }
@@ -132,7 +126,7 @@ document.addEventListener('DOMContentLoaded', () => {
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
   });
 
-  // ---------------- Micro (reco vocale stable) ----------------
+  // -------- Micro --------
   let recog=null, recognizing=false;
   function initSpeech(){
     const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -147,85 +141,88 @@ document.addEventListener('DOMContentLoaded', () => {
     return r;
   }
   function startVocal(){
+    if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
     if(!recog) recog=initSpeech();
     if(!recog){ toast("Micro non supporté."); return; }
     if(!recognizing){ try{ recog.start(); recognizing=true; }catch{} }
     State.vocal=true; setActive(btnVocal,true);
   }
+  btnVocal?.addEventListener('click', ()=>{ if(State.vocal){ stopVocal(); } else { startVocal(); } });
 
-  btnVocal?.addEventListener('click', ()=>{
-    if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    if(State.vocal){ stopVocal(); } else { startVocal(); }
-  });
-
-  // ---------------- Souffle (toggle fiable) ----------------
-  btnVeil?.addEventListener('click', ()=>{
-    if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    if(State.souffle){ stopSouffle(); return; }
-    State.souffle=true; setActive(btnVeil,true); lancerSouffle();
-    State.timerSouffle=setInterval(lancerSouffle, 35000);
-  });
-
-  function lancerSouffle(){
-    if(!State.sanctuaire) return;
-    invokeServer("souffle sacré");
-  }
-
-  // ---------------- Papyrus + synchro ----------------
+  // -------- Papyrus + segments --------
   function showPap(){ if(!pap) return; pap.style.display='flex'; ptxt.textContent=''; ptxt.scrollTop=0; }
-  function playSegments(segments){
-    return new Promise(async (resolveOuter)=>{
-      showPap(); eye && eye.classList.add('playing'); aura && aura.classList.add('active');
-      for (let i=0;i<segments.length;i++){
-        const seg=segments[i];
-        await new Promise((resolve)=>{
-          tts.src=seg.audio_url+"?t="+Date.now();
-          tts.onloadedmetadata=function(){
-            const d=Math.max(900,(tts.duration||1.6)*1000);
-            // typing sync
-            const text=seg.text; let idx=0;
-            const step=Math.max(14, Math.round(d/Math.max(22,text.length)));
-            const typer=setInterval(()=>{
-              ptxt.textContent+=text.charAt(idx++);
-              ptxt.scrollTop=ptxt.scrollHeight;
-              if(idx>=text.length){ clearInterval(typer); }
-            }, step);
-            try{ tts.play(); }catch{}
-            tts.onended=()=>{ clearInterval(typer); ptxt.textContent+=(i<segments.length-1?" ":""); resolve(); };
-          };
-        });
-      }
-      eye && eye.classList.remove('playing'); aura && aura.classList.remove('active');
-      resolveOuter();
-    });
+  async function playSegments(segments){
+    if(!segments || !segments.length) return;
+    State.isPlaying=true; showPap(); eye && eye.classList.add('playing'); aura && aura.classList.add('active');
+    for (let i=0;i<segments.length;i++){
+      const seg=segments[i];
+      await new Promise((resolve)=>{
+        tts.src=seg.audio_url+"?t="+Date.now();
+        tts.onloadedmetadata=function(){
+          const d=Math.max(900,(tts.duration||1.6)*1000);
+          const text=seg.text; let idx=0;
+          const step=Math.max(14, Math.round(d/Math.max(22,text.length)));
+          const typer=setInterval(()=>{
+            ptxt.textContent+=text.charAt(idx++);
+            ptxt.scrollTop=ptxt.scrollHeight;
+            if(idx>=text.length){ clearInterval(typer); }
+          }, step);
+          try{ tts.play(); }catch{}
+          tts.onended=()=>{ clearInterval(typer); ptxt.textContent+=(i<segments.length-1?" ":""); resolve(); };
+        };
+      });
+    }
+    eye && eye.classList.remove('playing'); aura && aura.classList.remove('active');
+    State.isPlaying=false;
   }
 
-  // ---------------- Réseau ----------------
+  // -------- Réseau --------
   async function invokeServer(prompt){
     const mode = State.mode || localStorage.getItem('mode') || "sentinelle8";
-    try{
-      const r=await fetch("/invoquer",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,mode})});
-      const data=await r.json();
-      const segments=data?.segments||[];
-      if(!segments.length){ toast("Rien à lire."); return; }
-      await playSegments(segments);
-    }catch{ toast("Erreur réseau."); }
+    const r=await fetch("/invoquer",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify({prompt,mode})});
+    const data=await r.json();
+    const segments=data?.segments||[];
+    if(!segments.length){ toast("Rien à lire."); return; }
+    await playSegments(segments);
   }
 
   async function send(){
     if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    if(!input.value.trim()) return;
-    hardReset(); setActive(btnGo,true); safePlay(sClick);
-    await invokeServer(input.value.trim());
+    const prompt=(input?.value||"").trim(); if(!prompt) return;
+    setActive(btnGo,true); safePlay(sClick);
+    // couper tout ce qui tourne (pour éviter superpositions)
+    stopSouffle(); stopVocal(); stopSpeaking();
+    await invokeServer(prompt);
     setActive(btnGo,false); input.value="";
   }
-
   btnGo?.addEventListener('click', send);
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') send(); });
 
-  // ---------------- Toast minimal ----------------
+  // -------- Souffle (toggle fiable + relance) --------
+  function planifierSouffleSuivant(){
+    if(!State.souffle) return;
+    if(State.souffleNext){ clearTimeout(State.souffleNext); }
+    State.souffleNext=setTimeout(()=>{ if(State.souffle) lancerSouffle(); }, 35000);
+  }
+  async function lancerSouffle(){
+    if(!State.sanctuaire) return;
+    await invokeServer("souffle sacré");
+    planifierSouffleSuivant();
+  }
+  btnVeil?.addEventListener('click', ()=>{
+    if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
+    if(State.souffle){
+      stopSouffle();
+    } else {
+      State.souffle=true; setActive(btnVeil,true);
+      // si quelque chose joue, on attend la fin
+      if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); }
+    }
+  });
+
+  // -------- Toast --------
   function toast(msg){
-    const d=document.createElement('div'); d.className='toast'; d.textContent=msg;
-    document.body.appendChild(d); setTimeout(()=>d.remove(),1800);
+    const d=document.createElement('div'); d.className='toast'; d.setAttribute('role','status'); d.textContent=msg;
+    document.body.appendChild(d); setTimeout(()=>d.remove(), 1800);
   }
 });

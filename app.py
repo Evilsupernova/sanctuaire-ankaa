@@ -1,4 +1,4 @@
-# app.py — Sanctuaire Ankaa v11 (UI stable + RAG interprétatif + TTS segmenté)
+# app.py — Sanctuaire Ankaa v12 (UI stable + RAG interprétatif + TTS segmenté)
 import os, re, json, math, asyncio, unicodedata, random
 from pathlib import Path
 from datetime import datetime
@@ -18,7 +18,7 @@ AUDIO = BASE / "static" / "assets"
 MEM.mkdir(exist_ok=True)
 AUDIO.mkdir(parents=True, exist_ok=True)
 
-# ---------------- voix ----------------
+# ---------------- Voix ----------------
 VOIX_FEMME = {
     "sentinelle8": "fr-FR-DeniseNeural",
     "dragosly23":  "fr-CA-SylvieNeural",
@@ -33,7 +33,7 @@ VOIX_HOMME = {
 }
 MODES = {m: {"mem": MEM / f"memoire_{m}.json"} for m in VOIX_FEMME}
 
-# ---------------- utils texte ----------------
+# ---------------- Utils texte ----------------
 EMOJI_RE = re.compile(
     r"[\U0001F1E6-\U0001F1FF\U0001F300-\U0001FAD6\U0001FAE0-\U0001FAFF\u2600-\u26FF\u2700-\u27BF]+",
     flags=re.UNICODE
@@ -133,7 +133,7 @@ def retrieve(q, k=3, min_score=0.75):
         if len(out)>=k: break
     return out
 
-# ---------------- cerveau + âme (interprétation) ----------------
+# ---------------- Cerveau + Âme (interprétation) ----------------
 def top_keywords(text, n=6):
     words=[w for w in _tok(text) if w not in STOP_FR]
     if not words: return []
@@ -141,27 +141,23 @@ def top_keywords(text, n=6):
     return [w for w,_ in Counter(words).most_common(n)]
 
 def interpret(hits):
-    # 1) matière première
     frags=[_clean(h["text"]) for h in hits]
     base=" ".join(frags)
     kw=top_keywords(base)
-    # 2) petite synthèse 'sacrée'
     pts=[]
     if frags:
-        pts.append("Ce passage éclaire la marche intérieure et rappelle la vigilance du veilleur.")
+        pts.append("Ce passage éclaire la marche intérieure et la vigilance du veilleur.")
         if kw:
-            pts.append("Mots-clés qui rayonnent : " + ", ".join(kw[:5]) + ".")
-        pts.append("Sens : avance avec douceur mais constance ; fais de chaque souffle une offrande.")
-    # 3) extrait court pour lier au texte
+            pts.append("Mots qui rayonnent : " + ", ".join(kw[:5]) + ".")
+        pts.append("Sens : avance avec douceur et constance ; fais de chaque souffle une offrande.")
     cite=(" ".join(frags[0].split()[:45])+"…") if frags else ""
-    out = []
+    out=[]
     if cite: out.append(f"« {cite} »")
     out += [f"— {p}" for p in pts]
     return "\n".join(out) if out else None
 
 def is_greet(s):
     t=_norm(s); return any(w in t for w in ["salut","bonjour","bonsoir","coucou","hello","hey"])
-
 def greet(): return "Salut, frère. De quel passage veux-tu que je tire la lumière ?"
 
 def pick_random_fragment():
@@ -172,10 +168,8 @@ def pick_random_fragment():
 def compose_answer(user):
     hits=retrieve(user, k=3)
     if not hits: return None
-    # mélange : courte explication + appui sur le texte
     explained=interpret(hits)
     if explained: return f"Dans tes écrits, voici ce qui se lève :\n{explained}"
-    # fallback
     parts=[]
     for h in hits:
         frag=_clean(h["text"]); parts.append("— "+ " ".join(frag.split()[:70])+"…")

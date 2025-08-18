@@ -19,12 +19,12 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
   margin: 0 12px 0;
 }
 
-/* BARRE D’OUTILS — entre le titre et l’œil */
+/* BARRE D’OUTILS — entre le titre et l’œil (un peu plus bas) */
 #tools-column{
   position:relative;
-  margin: 10px auto 6px;
+  margin: 14px auto 8px;
   display:flex; justify-content:center; align-items:center; gap:var(--tools-gap);
-  width:min(92vw,820px); z-index:10050;
+  width:min(92vw,840px); z-index:10050;
 }
 .tool-btn{
   background:rgba(34,28,10,.62); color:#ffe066; border:1px solid rgba(255,224,102,.25);
@@ -34,10 +34,10 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 .tool-btn:hover,.tool-btn:focus{ transform:translateY(-1px) scale(1.04); background:#ffe066; color:#2c2108; border-color:rgba(255,224,102,.55); box-shadow:0 0 18px 4px #ffe06677; }
 .tool-btn.active{ background:#ffe066; color:#2c2108; box-shadow:0 0 10px 2px #ffe06677; }
 
-/* ŒIL — un peu plus grand et légèrement à GAUCHE */
+/* ŒIL — un peu plus grand et encore -5% à gauche */
 .oeil-centre{
   position:relative; z-index:2; width:clamp(500px,82vw,820px);
-  margin: 12px auto 0; transform: translateX(-2.5%); /* léger décalage gauche */
+  margin: 10px auto 0; transform: translateX(-5%); /* décalage gauche total */
 }
 #oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; margin:0 auto; }
 #aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:100%; height:78%;
@@ -58,7 +58,7 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 }
 #bouton-sanctuaire:hover{ background:#ffe066; color:#2c2108; }
 
-/* PAPYRUS — à gauche, synchro avec la voix, ne gêne pas l’œil */
+/* PAPYRUS — à gauche, synchro avec la voix */
 .papyrus-cercle{
   position:fixed; left:6vw; right:auto;
   bottom:calc(var(--chat-h) + 22px + env(safe-area-inset-bottom));
