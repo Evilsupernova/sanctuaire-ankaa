@@ -1,11 +1,12 @@
-# Sanctuaire Ankaa v13.2 — FR poli, RAG stable, TTS cache, diag séparé + fallback Souffle
-import os, re, json, math, asyncio, unicodedata, random, time
+# Sanctuaire Ankaa v14 — FR poli, LLM (Mistral) optionnel, RAG, TTS cache, diag séparé, souffle garanti
+import os, re, json, math, asyncio, unicodedata, random, time, requests
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict, deque
 from hashlib import sha1
 from flask import Flask, render_template, request, jsonify, make_response
 
+# edge-tts facultatif
 try:
     import edge_tts
 except Exception:
@@ -20,6 +21,38 @@ CACHE   = ASSETS / "cache"   # MP3 réutilisables
 MEM.mkdir(exist_ok=True)
 ASSETS.mkdir(parents=True, exist_ok=True)
 CACHE.mkdir(parents=True, exist_ok=True)
+
+# ---------- LLM (optionnel) ----------
+USE_LLM      = os.getenv("USE_LLM", "0") == "1"
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "mistral").lower()
+MISTRAL_KEY  = os.getenv("MISTRAL_API_KEY")
+MISTRAL_MODEL= os.getenv("MISTRAL_MODEL", "mistral-small-latest")
+LLM_MAX_TOK  = int(os.getenv("MISTRAL_MAX_TOKENS", "400"))
+
+def llm_generate(prompt: str, sys: str = "Tu parles un français clair, chaleureux et concis."):
+    """Renvoie du texte libre via LLM si activé, sinon None."""
+    if not USE_LLM:
+        return None
+    if LLM_PROVIDER != "mistral" or not MISTRAL_KEY:
+        return None
+    try:
+        url = "https://api.mistral.ai/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {MISTRAL_KEY}", "Content-Type": "application/json"}
+        body = {
+            "model": MISTRAL_MODEL,
+            "messages": [
+                {"role": "system", "content": sys},
+                {"role": "user", "content": prompt}
+            ],
+            "temperature": 0.7,
+            "max_tokens": LLM_MAX_TOK
+        }
+        r = requests.post(url, headers=headers, json=body, timeout=18)
+        j = r.json() if r.ok else {}
+        return (j.get("choices") or [{}])[0].get("message", {}).get("content")
+    except Exception as e:
+        print("[llm_generate error]", e)
+        return None
 
 # ---------- VOIX ----------
 VOIX_FEMME = {
@@ -193,33 +226,16 @@ def compose_answer(user):
     if not hits: return None
     return "Dans tes écrits, voici ce qui se lève :\n" + interpret(hits)
 
-def answer(user, mode):
-    if is_greet(user): return greet()
-
-    # SOUFFLE — avec fallback garanti
-    if _norm(user)=="souffle sacre":
-        multi = pick_multi_fragments(n=2)
-        if not multi:
-            full = pick_full_fragment()
-            if full: multi = [full]
-        if not multi:
-            multi = ["Respire doucement… Inspire la paix, expire la tension. Laisse ton cœur s’ouvrir à la lumière."]
-        text = "\n\n".join(multi)
-        return "Souffle sacré :\n" + text
-
-    composed=compose_answer(user)
-    if composed: return composed
-    return "Donne-moi un mot-clé ou une phrase, et je descends dans ton Verbe."
-
 # ---------- FR post-processing ----------
 def polish_fr_text(txt: str) -> str:
     if not txt: return ""
     t = strip_emojis(txt)
-    t = re.sub(r"\.\.\.", "…", t)
-    t = re.sub(r"\s*([:;!?])", r" \1", t)
-    t = re.sub(r"\s+([\.…])", r"\1", t)
+    t = re.sub(r"\.\.\.", "…", t)             # ... -> …
+    t = re.sub(r"\s*([:;!?])", r" \1", t)     # espace avant : ; ! ?
+    t = re.sub(r"\s+([\.…])", r"\1", t)       # pas d’espace avant . …
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s--\s", " — ", t)
+    # guillemets français simples (approx)
     t = t.replace('" ', '« ').replace(' "', ' « ').replace('"', ' »')
     return t.strip()
 
@@ -234,6 +250,9 @@ def strip_tts(txt):
     return re.sub(r"\s+"," ", t).strip(" .")
 
 def split_sentences(text: str):
+    text = (text or "").strip()
+    if not text:
+        return ["Je n’ai rien reçu, mais je reste présent."]
     raw=[s.strip() for s in re.split(r"(?<=[\.!?…])\s+", text) if s.strip()]
     out=[]; buf=""
     for s in raw:
@@ -241,7 +260,7 @@ def split_sentences(text: str):
         if buf: out.append(buf); buf=""
         out.append(s)
     if buf: out.append(buf)
-    return out[:14]
+    return out[:14] if out else [text]
 
 def voice_params(mode: str, is_souffle: bool):
     if is_souffle:
@@ -300,6 +319,36 @@ def cache_path_for(text: str, voice: str, rate: str, pitch: str) -> Path:
     h = sha1(key.encode("utf-8")).hexdigest()[:24]
     return CACHE / f"tts_{h}.mp3"
 
+# ---------- Réponse principale ----------
+def answer(user, mode):
+    # salutations
+    if is_greet(user): 
+        return greet()
+
+    # SOUFFLE — garanti (même dataset vide)
+    if _norm(user) == "souffle sacre":
+        multi = pick_multi_fragments(n=2)
+        if not multi:
+            full = pick_full_fragment()
+            if full: multi = [full]
+        if not multi:
+            multi = ["Respire doucement… Inspire la paix, expire la tension. Laisse ton cœur s’ouvrir à la lumière."]
+        text = "\n\n".join(multi)
+        return "Souffle sacré :\n" + text
+
+    # INVOCATION — "parler de tout" : LLM d'abord si activé
+    g = llm_generate(user)
+    if g:
+        return g
+
+    # sinon, RAG sur dataset
+    composed = compose_answer(user)
+    if composed:
+        return composed
+
+    # fallback minimal si rien
+    return f"Tu dis : « {user.strip()} ». Voici mon écho : avance avec clarté et douceur ; chaque parole porte une intention."
+
 # ---------- HEADERS ----------
 @app.after_request
 def add_headers(resp):
@@ -324,7 +373,9 @@ def sw(): return app.send_static_file("service-worker.js")
 def diag():
     return jsonify({"dataset_exists": DATASET.exists(),
                     "files": sorted([p.name for p in DATASET.glob('*.txt')]) if DATASET.exists() else [],
-                    "fragments": len(FRAGS)})
+                    "fragments": len(FRAGS),
+                    "use_llm": USE_LLM,
+                    "llm_provider": LLM_PROVIDER})
 
 @app.route("/reindex", methods=["POST","GET"])
 def reindex():
@@ -368,6 +419,8 @@ def invoquer():
             out_list.append({"text": seg, "audio_url": f"/static/assets/cache/{p.name}"})
         else:
             out_list.append({"text": seg, "audio_url": None})
+    if not out_list:
+        out_list = [{"text": "Je suis là. Parle, et je répondrai.", "audio_url": None}]
 
     # Log JSON + journal mémoire
     log = {
@@ -390,6 +443,7 @@ def diag_log():
 
 @app.route("/diag-front")
 def diag_front():
+    # pas de f-string ici (le CSS/JS contient des {})
     html = """<!doctype html>
 <html lang="fr"><meta charset="utf-8">
 <title>Diag Front — Sanctuaire Ankaa</title>

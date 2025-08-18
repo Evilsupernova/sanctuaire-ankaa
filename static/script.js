@@ -65,7 +65,25 @@ document.addEventListener('DOMContentLoaded', () => {
     papyrusHideTimer:null
   };
 
-  const setActive=(el,on)=>{ if(!el) return; el.classList.toggle('active', !!on); el.setAttribute('aria-pressed', !!on); };
+  // -------- Helpers UI --------
+  const setActive = (el, on) => {
+    if (!el) return;
+    el.classList.toggle('active', !!on);
+    el.setAttribute('aria-pressed', !!on);
+  };
+  function resetAllToggles() {
+    [btnGo, btnMode, btnVeil, btnVocal].forEach(el => {
+      if (!el) return;
+      el.classList.remove('active');
+      el.setAttribute('aria-pressed', 'false');
+    });
+  }
+  function syncToggles() {
+    resetAllToggles();
+    setActive(btnVeil, !!State.souffle);
+    setActive(btnVocal, !!State.vocal);
+    setActive(btnGo, false);
+  }
   const disable=(el,on)=>{ if(!el) return; el.disabled=!!on; el.setAttribute('aria-disabled', !!on); };
   const safePlay=a=>{ if(!a) return; a.currentTime=0; const p=a.play(); if(p&&p.catch) p.catch(()=>{}); };
   const flash=(el, ms=220)=>{ setActive(el,true); setTimeout(()=>setActive(el,false), ms); };
@@ -75,12 +93,6 @@ document.addEventListener('DOMContentLoaded', () => {
   if(bgm) bgm.volume = VOLUME_BASE;
   if(tts) tts.volume = 1.0;
   function restoreVolume(){ if(bgm) bgm.volume = VOLUME_BASE; State.tts=false; }
-
-  function syncToggles(){
-    setActive(btnGo, false);
-    setActive(btnVeil, !!State.souffle);
-    setActive(btnVocal, !!State.vocal);
-  }
 
   if(tts && bgm){
     tts.addEventListener('play', ()=>{ State.tts = true; bgm.volume = VOLUME_DUCK; pauseReco(); });
@@ -142,14 +154,12 @@ document.addEventListener('DOMContentLoaded', () => {
   btnOpen?.addEventListener('click', ()=>{
     fetch('/activer-ankaa').catch(()=>{});
     State.sanctuaire = true;
-
     if(zone) zone.style.display='grid';
     if(btnMode) btnMode.style.display='';
     if(btnVeil) btnVeil.style.display='';
     if(btnVocal) btnVocal.style.display='';
     if(pap) pap.style.display='none';
-
-    safePlay(bgm); safePlay(sOpen); safePlay(sClick); // ping audio iOS
+    safePlay(bgm); safePlay(sOpen); safePlay(sClick);
     overlay.open(true);
     btnOpen.style.display='none';
   });
@@ -192,10 +202,8 @@ document.addEventListener('DOMContentLoaded', () => {
   let currentAbort = null;
   const NET_TIMEOUT_MS = 15000;
   let lastSendAt = 0;
-
   function abortCurrent(){ if(currentAbort){ try{ currentAbort.abort(); }catch{} currentAbort=null; } }
   function withTimeout(p, ms){ return new Promise((resolve, reject)=>{ const t=setTimeout(()=>reject(new Error("timeout")), ms); p.then(v=>{ clearTimeout(t); resolve(v); }).catch(e=>{ clearTimeout(t); reject(e); }); }); }
-
   async function fetchSegments(prompt){
     abortCurrent();
     currentAbort = new AbortController();
@@ -206,46 +214,58 @@ document.addEventListener('DOMContentLoaded', () => {
     finally{ currentAbort=null; }
   }
 
-  // -------- Typage mot par mot --------
+  // -------- Typage --------
   function estimateMsForText(text){ const words=(text||'').trim().split(/\s+/).filter(Boolean).length; return Math.max(1200, Math.round((words/2.3)*1000)); }
   function startTyper(text, durationMs){ const words=(text||'').split(/\s+/); if(!words.length) return null; const step=Math.max(120, Math.round(durationMs/Math.max(10, words.length))); let i=0; const typer=setInterval(()=>{ ptxt.textContent += (i===0?'':' ') + (words[i++]||''); ptxt.scrollTop=ptxt.scrollHeight; if(i>=words.length){ clearInterval(typer); } }, step); return typer; }
 
+  // -------- Lecture segments --------
   async function playSegments(segments){
-    if(!segments || !segments.length) return;
+    if(!segments || !segments.length) return false;
     const mySeq = ++State.playSeq;
-    State.isPlaying=true; showPap();
+    let playedSomething = false;
+
+    State.isPlaying = true; showPap();
     eye && eye.classList.add('playing'); aura && aura.classList.add('active');
+
     for (let i=0;i<segments.length;i++){
-      if(mySeq !== State.playSeq) return;
+      if(mySeq !== State.playSeq) return playedSomething;
       const seg=segments[i];
       await new Promise((resolve)=>{
         const text = seg.text || '';
+
         if(!seg.audio_url){
-          const d=estimateMsForText(text); const typer=startTyper(text,d);
+          const d=estimateMsForText(text);
+          const typer=startTyper(text,d);
+          playedSomething = true;
           setTimeout(()=>{ if(typer) clearInterval(typer); ptxt.textContent+=(i<segments.length-1?" ":""); resolve(); }, d+80);
           return;
         }
+
         const done=()=>{ ptxt.textContent+=(i<segments.length-1?" ":""); resolve(); };
         tts.src=seg.audio_url+"?t="+Date.now();
-        let endedOrTimeout=false; let metadataTimeout=null;
-        tts.onloadedmetadata=function(){ if(endedOrTimeout) return; const metaDur=(isFinite(tts.duration)&&tts.duration>0)?tts.duration*1000:null; const d=metaDur||estimateMsForText(text); const typer=startTyper(text,d); try{ tts.play(); }catch{} setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; if(typer) clearInterval(typer); done(); } }, Math.max(d+220,1500)); };
-        metadataTimeout=setTimeout(()=>{ if(endedOrTimeout) return; const d=estimateMsForText(text); const typer=startTyper(text,d); try{ tts.play(); }catch{} setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; if(typer) clearInterval(typer); done(); } }, Math.max(d+220,1500)); }, 1200);
-        tts.onended=()=>{ if(endedOrTimeout) return; endedOrTimeout=true; if(metadataTimeout) clearTimeout(metadataTimeout); done(); };
-        tts.onerror=()=>{ if(endedOrTimeout) return; endedOrTimeout=true; if(metadataTimeout) clearTimeout(metadataTimeout); done(); };
+        let endedOrTimeout=false;
+        const hardTimeout = setTimeout(()=>{ if(endedOrTimeout) return; endedOrTimeout=true; done(); }, 6000);
+        tts.onplay = ()=>{ playedSomething = true; };
+        tts.onloadedmetadata=function(){ if(endedOrTimeout) return; const metaDur=(isFinite(tts.duration)&&tts.duration>0)?tts.duration*1000:null; const d=metaDur||estimateMsForText(text); const typer=startTyper(text,d); try{ tts.play(); }catch{} setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; if(typer) clearInterval(typer); clearTimeout(hardTimeout); done(); } }, Math.max(d+220,1500)); };
+        tts.onended=()=>{ if(endedOrTimeout) return; endedOrTimeout=true; clearTimeout(hardTimeout); done(); };
+        tts.onerror=()=>{ if(endedOrTimeout) return; endedOrTimeout=true; clearTimeout(hardTimeout); done(); };
       });
-      if(mySeq !== State.playSeq) return;
+      if(mySeq !== State.playSeq) return playedSomething;
     }
+
     eye && eye.classList.remove('playing'); aura && aura.classList.remove('active');
     State.isPlaying=false; syncToggles(); scheduleHidePapyrus(10000);
+    return playedSomething;
   }
 
   async function invokeAndPlay(prompt, {respectSouffle=true}={}){
     scheduleHidePapyrus(200);
     const segments = await fetchSegments(prompt);
     console.log('[invokeAndPlay]', prompt, 'segments:', segments?.length || 0);
-    if(respectSouffle && prompt.toLowerCase().includes('souffle') && !State.souffle){ return; }
-    if(!segments || !segments.length){ toast("Rien à lire (diag)."); return; }
-    await playSegments(segments);
+    if(respectSouffle && prompt.toLowerCase().includes('souffle') && !State.souffle){ return false; }
+    if(!segments || !segments.length){ toast("Rien à lire (diag)."); return false; }
+    const ok = await playSegments(segments);
+    return !!ok;
   }
 
   async function send(){
@@ -263,9 +283,29 @@ document.addEventListener('DOMContentLoaded', () => {
   input?.addEventListener('keypress', e=>{ if(e.key==='Enter') send(); });
 
   // -------- Souffle sacré --------
-  function stopSouffle(){ if(!State.souffle) return; State.souffle=false; setActive(btnVeil,false); if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; } stopSpeaking(); toast("Souffle sacré désactivé."); syncToggles(); }
-  function planifierSouffleSuivant(){ if(!State.souffle) return; if(State.souffleNext){ clearTimeout(State.souffleNext); } State.souffleNext=setTimeout(()=>{ if(!State.souffle) return; if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); } }, 35000); }
-  async function lancerSouffle(){ if(!State.sanctuaire || !State.souffle) return; if(State.isPlaying){ planifierSouffleSuivant(); return; } console.log('[souffle] lancerSouffle()'); await invokeAndPlay("souffle sacré", {respectSouffle:true}); planifierSouffleSuivant(); }
+  function stopSouffle(){
+    if(!State.souffle) return;
+    State.souffle=false;
+    setActive(btnVeil,false);
+    if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; }
+    stopSpeaking();
+    toast("Souffle sacré désactivé.");
+    syncToggles();
+  }
+  function planifierSouffleSuivant(){
+    if(!State.souffle) return;
+    if(State.souffleNext){ clearTimeout(State.souffleNext); }
+    State.souffleNext = setTimeout(()=>{ if(!State.souffle) return; if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); } }, 35000);
+  }
+  async function lancerSouffle(){
+    if(!State.sanctuaire || !State.souffle) return;
+    if(State.isPlaying){ planifierSouffleSuivant(); return; }
+    btnVeil && (btnVeil.disabled = true);
+    const ok = await invokeAndPlay("souffle sacré", {respectSouffle:true});
+    btnVeil && (btnVeil.disabled = false);
+    if(!ok){ toast("Souffle indisponible pour l’instant."); stopSouffle(); return; }
+    planifierSouffleSuivant();
+  }
   btnVeil?.addEventListener('click', ()=>{ if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; } if(State.souffle){ stopSouffle(); } else { State.souffle=true; setActive(btnVeil,true); toast("Souffle sacré activé."); if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); } syncToggles(); } });
 
   // -------- Toast --------
