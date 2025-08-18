@@ -1,8 +1,8 @@
-# Sanctuaire Ankaa v13.0 — FR poli, RAG stable, TTS cache, journaux JSON, endpoints service
+# Sanctuaire Ankaa v13.1 — FR poli, RAG stable, TTS cache, journaux JSON, endpoints service + DIAG séparé
 import os, re, json, math, asyncio, unicodedata, random, time
 from pathlib import Path
 from datetime import datetime
-from collections import Counter, defaultdict
+from collections import Counter, defaultdict, deque
 from hashlib import sha1
 from flask import Flask, render_template, request, jsonify, make_response
 
@@ -86,9 +86,11 @@ def _split(txt: str, name: str):
 def build_index():
     global FRAGS, DF, N
     FRAGS, DF, N = [], Counter(), 0
-    if not DATASET.exists(): print("[INDEX] dataset/ MANQUANT"); return
+    if not DATASET.exists():
+        print("[INDEX] dataset/ MANQUANT"); return
     files = sorted(DATASET.glob("*.txt"))
-    if not files: print("[INDEX] 0 fichier .txt"); return
+    if not files:
+        print("[INDEX] 0 fichier .txt"); return
     for p in files:
         raw=_read_any(p)
         if not raw: continue
@@ -105,14 +107,14 @@ def _bm25(q, k1=1.5, b=0.75):
     avgdl=sum(len(d["tokens"]) for d in FRAGS)/len(FRAGS)
     sc=defaultdict(float)
     for t in q:
-      df=DF.get(t,0)
-      if not df: continue
-      idf=math.log(1+(N-df+0.5)/(df+0.5))
-      for d in FRAGS:
-          tf=d["tokens"].count(t)
-          if not tf: continue
-          denom=tf + k1*(1 - b + b*(len(d["tokens"])/avgdl))
-          sc[d["id"]] += idf*((tf*(k1+1))/denom)
+        df=DF.get(t,0)
+        if not df: continue
+        idf=math.log(1+(N-df+0.5)/(df+0.5))
+        for d in FRAGS:
+            tf=d["tokens"].count(t)
+            if not tf: continue
+            denom=tf + k1*(1 - b + b*(len(d["tokens"])/avgdl))
+            sc[d["id"]] += idf*((tf*(k1+1))/denom)
     return sorted(sc.items(), key=lambda x:x[1], reverse=True)
 
 def retrieve(q, k=3):
@@ -120,9 +122,8 @@ def retrieve(q, k=3):
     if not qt or not FRAGS: return []
     ranked=_bm25(qt)
     out=[]
-    # min_score adaptatif : top score * 0.42 (coupe le bruit)
     top = ranked[0][1] if ranked else 0.0
-    min_score = max(0.65, top*0.42)
+    min_score = max(0.65, top*0.42)  # coupe le bruit
     for did,sc in ranked[:max(18,k*4)]:
         if sc<min_score: continue
         d=FRAGS[did]
@@ -163,10 +164,9 @@ def top_keywords(text, n=6):
 
 def interpret(hits):
     frags=[_clean(h["text"]) for h in hits]
-    base=" ".join(frags)
+    base=" ".join(frags); lb=base.lower()
     kw=top_keywords(base)
     themes=[]
-    lb=base.lower()
     if any(k in lb for k in ["amour","authentic", "authenticité","libre"]):
         themes.append("appel à l’amour libre et vrai")
     if any(k in lb for k in ["souffle","respire","respiration"]):
@@ -179,10 +179,8 @@ def interpret(hits):
     if frags:
         cite=(" ".join(frags[0].split()[:55])+"…")
         lines.append(f"« {cite} »")
-    if themes:
-        lines.append("Je lis : " + "; ".join(themes)+".")
-    if kw:
-        lines.append("Signaux : " + ", ".join(kw[:5]) + ".")
+    if themes: lines.append("Je lis : " + "; ".join(themes)+".")
+    if kw:     lines.append("Signaux : " + ", ".join(kw[:5]) + ".")
     lines.append("Sens : avance sans te perdre dans la performance ; cherche la relation vivante, le feu qui relie.")
     return "\n".join(lines)
 
@@ -215,6 +213,8 @@ def polish_fr_text(txt: str) -> str:
     t = re.sub(r"\s+([\.…])", r"\1", t)       # pas d’espace avant . …
     t = re.sub(r"\s{2,}", " ", t)
     t = re.sub(r"\s--\s", " — ", t)
+    # guillemets français simples (approx)
+    t = t.replace('" ', '« ').replace(' "', ' « ').replace('"', ' »')
     return t.strip()
 
 # ---------- TTS ----------
@@ -297,7 +297,6 @@ def cache_path_for(text: str, voice: str, rate: str, pitch: str) -> Path:
 # ---------- HEADERS ----------
 @app.after_request
 def add_headers(resp):
-    # petits headers utiles (mobile)
     resp.headers["X-Content-Type-Options"] = "nosniff"
     resp.headers["Referrer-Policy"] = "no-referrer"
     return resp
@@ -325,6 +324,9 @@ def diag():
 def reindex():
     build_index()
     return jsonify({"fragments": len(FRAGS)})
+
+# Journal circulaire en mémoire (dernier 200)
+INV_LOG = deque(maxlen=200)
 
 @app.route("/invoquer", methods=["POST"])
 def invoquer():
@@ -361,7 +363,7 @@ def invoquer():
         else:
             out_list.append({"text": seg, "audio_url": None})
 
-    # Log JSON
+    # Log JSON + journal mémoire
     log = {
         "ts": datetime.utcnow().isoformat()+"Z",
         "mode": mode,
@@ -371,9 +373,92 @@ def invoquer():
         "dur_ms": int((time.time()-t0)*1000)
     }
     print("[invoke]", json.dumps(log, ensure_ascii=False))
+    INV_LOG.append(log)
 
     return jsonify({"segments": out_list, "tts": "ok", "lang": "fr"})
 
+# -------- DIAG FRONT SEPARE (n'interfère pas avec l'app) --------
+@app.route("/diag-log")
+def diag_log():
+    return jsonify(list(INV_LOG))
+
+@app.route("/diag-front")
+def diag_front():
+    # IMPORTANT: pas de f-string ici, pour éviter les accolades CSS/JS qui cassent l'analyse
+    html = """<!doctype html>
+<html lang="fr"><meta charset="utf-8">
+<title>Diag Front — Sanctuaire Ankaa</title>
+<style>
+  body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,'Helvetica Neue',Arial,sans-serif;background:#0f1115;color:#eaeef2;margin:20px}
+  h1{font-size:20px;margin:0 0 12px}
+  .row{display:flex;gap:10px;align-items:center;margin:8px 0}
+  .ok{color:#90ee90} .ko{color:#ff8080}
+  table{border-collapse:collapse;width:100%;margin-top:12px}
+  th,td{border:1px solid #334; padding:6px 8px; font-size:13px}
+  th{background:#18202b}
+  .mono{font-family:ui-monospace,Consolas,Monaco,monospace}
+  button{background:#1b2838;color:#eaeef2;border:1px solid #334;padding:6px 10px;border-radius:6px;cursor:pointer}
+  button:hover{filter:brightness(1.1)}
+</style>
+<h1>Diag Front — Sanctuaire Ankaa</h1>
+<div class="row">
+  <button id="ping">Ping /health</button>
+  <span id="pingres"></span>
+</div>
+<div class="row">
+  <button id="refresh">Rafraîchir journal</button>
+  <span>Affiche les 50 dernières invocations</span>
+</div>
+<table id="log">
+  <thead><tr>
+    <th>Horodatage</th><th>Mode</th><th>Souffle</th><th>Segments</th><th>Durée (ms)</th><th>Prompt len</th>
+  </tr></thead>
+  <tbody></tbody>
+</table>
+<script>
+const pingBtn = document.getElementById('ping');
+const pingRes = document.getElementById('pingres');
+const refreshBtn = document.getElementById('refresh');
+const tbody = document.querySelector('#log tbody');
+
+pingBtn.onclick = async ()=>{
+  pingRes.textContent = '…';
+  try{
+    const r = await fetch('/health');
+    const j = await r.json();
+    pingRes.textContent = j.ok ? 'OK' : 'KO';
+    pingRes.className = j.ok ? 'ok' : 'ko';
+  }catch(e){
+    pingRes.textContent = 'KO'; pingRes.className = 'ko';
+  }
+};
+
+async function loadLog(){
+  try{
+    const r = await fetch('/diag-log');
+    const arr = await r.json();
+    const last = arr.slice(-50).reverse();
+    tbody.innerHTML = last.map(x=>`
+      <tr>
+        <td class="mono">${x.ts||''}</td>
+        <td>${x.mode||''}</td>
+        <td>${x.souffle? 'oui':'non'}</td>
+        <td>${x.segments||0}</td>
+        <td>${x.dur_ms||0}</td>
+        <td>${x.prompt_len||0}</td>
+      </tr>
+    `).join('');
+  }catch(e){
+    tbody.innerHTML = '<tr><td colspan="6" class="ko">Impossible de charger /diag-log</td></tr>';
+  }
+}
+refreshBtn.onclick = loadLog;
+loadLog();
+</script>
+"""
+    return make_response(html, 200, {"Content-Type": "text/html; charset=utf-8"})
+
+# ---------- BOOT ----------
 build_index()
 if __name__=="__main__":
     app.run(host="0.0.0.0", port=int(os.getenv("PORT",5000)), debug=True)

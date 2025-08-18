@@ -52,7 +52,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Player TTS présent mais invisible (autoplay-friendly)
   if(tts){ tts.style.display='block'; tts.style.width='0'; tts.style.height='0'; tts.style.opacity='0'; }
 
-  // -------- App State (machine simple) --------
+  // -------- App State --------
   const State = {
     sanctuaire:false,
     mode:null,
@@ -78,6 +78,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
   function restoreVolume(){ if(bgm) bgm.volume = VOLUME_BASE; State.tts=false; }
 
+  // -------- Sync visuelle des toggles --------
+  function syncToggles(){
+    setActive(btnGo, false);
+    setActive(btnVeil, !!State.souffle);
+    setActive(btnVocal, !!State.vocal);
+  }
+
   // Ducking + pause reco pendant TTS
   if(tts && bgm){
     tts.addEventListener('play', ()=>{
@@ -88,6 +95,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const restore=()=>{
       restoreVolume();
       if(State.vocal && !State.recognizing){ startReco(); }
+      syncToggles();
     };
     tts.addEventListener('ended', restore);
     tts.addEventListener('pause', restore);
@@ -111,6 +119,7 @@ document.addEventListener('DOMContentLoaded', () => {
     aura && aura.classList.remove('active');
     State.isPlaying=false;
     scheduleHidePapyrus(400);
+    syncToggles();
   }
 
   // -------- Overlay (mode) --------
@@ -148,6 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
     overlay.close(); safePlay(sMode);
     disable(btnGo,false); disable(input,false);
     toast(`Mode : ${k}`);
+    syncToggles();
   }
   document.querySelectorAll('#mode-overlay .mode-option').forEach(b=>{
     b.addEventListener('click', ()=> setMode(b.getAttribute('data-mode')));
@@ -181,10 +191,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
   function pauseReco(){ if(!recog) return; try{ recog.stop(); }catch{} State.recognizing=false; }
-  function stopVocal(){ if(!State.vocal) return; State.vocal=false; setActive(btnVocal,false); pauseReco(); toast("Vocal désactivé."); }
+  function stopVocal(){ if(!State.vocal) return; State.vocal=false; setActive(btnVocal,false); pauseReco(); toast("Vocal désactivé."); syncToggles(); }
   function startVocal(){
     if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
-    startReco(); State.vocal=true; setActive(btnVocal,true); toast("Vocal activé : parle, je t’écoute.");
+    startReco(); State.vocal=true; setActive(btnVocal,true); toast("Vocal activé : parle, je t’écoute."); syncToggles();
   }
   btnVocal?.addEventListener('click', ()=>{ if(State.vocal){ stopVocal(); } else { startVocal(); } });
 
@@ -225,9 +235,24 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
+  // -------- Typage & lecture --------
   function estimateMsForText(text){
     const words = (text||'').trim().split(/\s+/).filter(Boolean).length;
     return Math.max(1200, Math.round((words/2.3)*1000));
+  }
+
+  // Typage mot-par-mot (stable FR)
+  function startTyper(text, durationMs){
+    const words = (text || '').split(/\s+/);
+    if (!words.length) return null;
+    const step = Math.max(120, Math.round(durationMs / Math.max(10, words.length)));
+    let i = 0;
+    const typer = setInterval(() => {
+      ptxt.textContent += (i === 0 ? '' : ' ') + (words[i++] || '');
+      ptxt.scrollTop = ptxt.scrollHeight;
+      if (i >= words.length) { clearInterval(typer); }
+    }, step);
+    return typer;
   }
 
   async function playSegments(segments){
@@ -241,26 +266,16 @@ document.addEventListener('DOMContentLoaded', () => {
       const seg=segments[i];
       await new Promise((resolve)=>{
         const text = seg.text || '';
-        let typer=null;
-        const startTyper=(durationMs)=>{
-          const step=Math.max(14, Math.round(durationMs/Math.max(22, text.length||1)));
-          let idx=0;
-          typer=setInterval(()=>{
-            ptxt.textContent += text.charAt(idx++);
-            ptxt.scrollTop = ptxt.scrollHeight;
-            if(idx>=text.length){ clearInterval(typer); typer=null; }
-          }, step);
-        };
 
+        // Fallback texte-only
         if(!seg.audio_url){
           const d = estimateMsForText(text);
-          startTyper(d);
-          setTimeout(()=>{ if(typer) clearInterval(typer); ptxt.textContent+=(i<segments.length-1?" ":""); resolve(); }, d+60);
+          const typer = startTyper(text, d);
+          setTimeout(()=>{ if(typer) clearInterval(typer); ptxt.textContent+=(i<segments.length-1?" ":""); resolve(); }, d + 80);
           return;
         }
 
         const done = ()=>{
-          if(typer){ clearInterval(typer); typer=null; }
           ptxt.textContent+=(i<segments.length-1?" ":"");
           resolve();
         };
@@ -273,17 +288,17 @@ document.addEventListener('DOMContentLoaded', () => {
           if(endedOrTimeout) return;
           const metaDur = (isFinite(tts.duration) && tts.duration>0) ? tts.duration*1000 : null;
           const d = metaDur || estimateMsForText(text);
-          startTyper(d);
+          const typer = startTyper(text, d);
           try{ tts.play(); }catch{}
-          setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; done(); } }, Math.max(d+200, 1400));
+          setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; if(typer) clearInterval(typer); done(); } }, Math.max(d+220, 1500));
         };
 
         metadataTimeout = setTimeout(()=>{
           if(endedOrTimeout) return;
           const d = estimateMsForText(text);
-          startTyper(d);
+          const typer = startTyper(text, d);
           try{ tts.play(); }catch{}
-          setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; done(); } }, Math.max(d+200, 1400));
+          setTimeout(()=>{ if(!endedOrTimeout){ endedOrTimeout=true; if(typer) clearInterval(typer); done(); } }, Math.max(d+220, 1500));
         }, 1200);
 
         tts.onended = ()=>{
@@ -304,10 +319,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     eye && eye.classList.remove('playing'); aura && aura.classList.remove('active');
     State.isPlaying=false;
-    // Sync visuelle des toggles
-    setActive(btnGo,false);
-    setActive(btnVeil, !!State.souffle);
-    setActive(btnVocal, !!State.vocal);
+    syncToggles();
     scheduleHidePapyrus(10000);
   }
 
@@ -332,7 +344,7 @@ document.addEventListener('DOMContentLoaded', () => {
   async function send(){
     if(!State.sanctuaire){ toast("Active d’abord le Sanctuaire ☥"); return; }
     const now = Date.now();
-    if(now - lastSendAt < DEBOUNCE_MS) return;
+    if(now - lastSendAt < 400) return; // anti-spam
     lastSendAt = now;
 
     const prompt=(input?.value||"").trim(); if(!prompt) return;
@@ -351,6 +363,7 @@ document.addEventListener('DOMContentLoaded', () => {
       disable(btnGo,false); disable(input,false);
       setActive(btnGo,false); input.value="";
       if(State.vocal && !State.tts && !State.recognizing){ startReco(); }
+      syncToggles();
     }
   }
   btnGo?.addEventListener('click', send);
@@ -363,6 +376,7 @@ document.addEventListener('DOMContentLoaded', () => {
     if(State.souffleNext){ clearTimeout(State.souffleNext); State.souffleNext=null; }
     stopSpeaking();
     toast("Souffle sacré désactivé.");
+    syncToggles();
   }
   function planifierSouffleSuivant(){
     if(!State.souffle) return;
@@ -383,11 +397,9 @@ document.addEventListener('DOMContentLoaded', () => {
       State.souffle=true; setActive(btnVeil,true);
       toast("Souffle sacré activé.");
       if(State.isPlaying){ planifierSouffleSuivant(); } else { lancerSouffle(); }
+      syncToggles();
     }
   });
-
-  // -------- Vocal toggle --------
-  btnVocal?.addEventListener('click', ()=>{ if(State.vocal){ stopVocal(); } else { startVocal(); } });
 
   // -------- Toast --------
   function toast(msg){
