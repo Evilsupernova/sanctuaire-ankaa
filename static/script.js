@@ -1,196 +1,223 @@
-// Sanctuaire Ankaa — script.js (toggles fiables + stop souffle + vocal propre)
-document.addEventListener('DOMContentLoaded', () => {
-  // ===== Raccourcis DOM =====
-  const $ = (sel) => document.querySelector(sel);
+// Sanctuaire Ankaa — JS (overlay + souffle + verbe)
+document.addEventListener('DOMContentLoaded', function () {
+  try { window.localStorage.removeItem('mode'); } catch(_) {}
 
-  const btnModeMini   = $('#btn-mode-mini');     // choisir un mode (overlay/feedback)
-  const btnSanctuaire = $('#btn-sanctuaire');    // ouvrir le sanctuaire (inchangé)
-  const btnVeille     = $('#btn-veille-mini');   // Souffle sacré (toggle)
-  const btnVocal      = $('#btn-vocal');         // Lecture auto (toggle)
+  const zoneInvocation   = document.getElementById('zone-invocation');
+  const btnModeMini      = document.getElementById('btn-mode-mini');
+  const btnVeilleMini    = document.getElementById('btn-veille-mini');
+  const btnVerbe         = document.getElementById('btn-verbe');
+  const promptInput      = document.getElementById('verbe');
+  const boutonSanctuaire = document.getElementById('bouton-sanctuaire');
 
-  const zoneInvocation= $('#zone-invocation');   // si présent dans ton HTML
-  const papyrusZone   = $('#papyrus-zone');
-  const papyrusTexte  = $('#papyrus-texte');
+  if (zoneInvocation) zoneInvocation.style.display = 'none';
+  if (btnModeMini)    { btnModeMini.disabled = true; btnModeMini.style.visibility = 'hidden'; }
+  if (btnVeilleMini)  btnVeilleMini.disabled = true;
+  if (btnVerbe)       btnVerbe.disabled = true;
+  if (promptInput)    promptInput.disabled = true;
 
-  const musique       = $('#musique-sacree');
-  const sfxClick      = $('#s-click');
-  const sfxOpen       = $('#s-open');
-  const sfxClose      = $('#s-close');
-  const sfxMode       = $('#s-mode');
-  const tts           = $('#tts-player');        // <audio id="tts-player" preload="auto" style="display:none">
+  const audio = document.getElementById('musique-sacree');
+  if (audio) audio.volume = 0.14;
 
-  // ===== Volumes doux =====
-  try { if (musique) musique.volume = 0.08; } catch(_){}
-  [sfxClick, sfxOpen, sfxClose, sfxMode].forEach(a => { try { if (a) a.volume = 0.22; } catch(_){} });
+  const sfxOpen   = document.getElementById('sfx-portal-open');
+  const sfxClose  = document.getElementById('sfx-portal-close');
+  const sfxGold   = document.getElementById('sfx-mode-gold');
+  const sfxBlue   = document.getElementById('sfx-mode-blue');
+  const sfxIvory  = document.getElementById('sfx-mode-ivory');
+  const sfxViolet = document.getElementById('sfx-mode-violet');
+  [sfxOpen, sfxClose].forEach(a => a && (a.volume = 0.24));
+  [sfxGold, sfxBlue, sfxIvory, sfxViolet].forEach(a => a && (a.volume = 0.18));
+  const play = (a)=>{ try{ a && (a.currentTime=0); a && a.play().catch(()=>{});}catch(_){} };
 
-  // ===== État global =====
-  const State = {
-    sanctuaire: false,
-    veille: false,          // souffle ON/OFF
-    vocal: false,           // lecture auto ON/OFF
-    souffleEnCours: false,  // un souffle est en train d’être joué
-    souffleTimer: null
-  };
+  if (boutonSanctuaire) boutonSanctuaire.addEventListener('click', activerSanctuaire);
 
-  // ===== Helpers UI =====
-  const setActive = (btn, on) => {
-    if (!btn) return;
-    btn.classList.toggle('active', !!on);
-    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
-  };
-  const play = (a) => { try { a && (a.currentTime = 0); a && a.play().catch(()=>{}); } catch(_){} };
+  function activerSanctuaire() {
+    if (audio) audio.play().catch(()=>{});
+    if (zoneInvocation) zoneInvocation.style.display = 'flex';
+    if (btnModeMini)   { btnModeMini.disabled = false; btnModeMini.style.visibility = 'visible'; }
+    if (btnVeilleMini) btnVeilleMini.disabled = false;
+    if (btnVerbe)      btnVerbe.disabled      = true;
+    if (promptInput)   promptInput.disabled   = true;
 
-  // Papyrus
-  function affichePapyrus(texte, dureeMs = 2500){
-    if(!papyrusZone || !papyrusTexte) return;
-    papyrusZone.style.display = 'flex';
-    papyrusTexte.textContent = '';
-    const chars = [...(texte || '')];
-    const step  = Math.max(10, Math.floor(dureeMs / Math.max(1, chars.length)));
-    let i = 0;
-    (function next(){ if (i < chars.length){ papyrusTexte.textContent += chars[i++]; setTimeout(next, step);} })();
-    setTimeout(closePapyrus, Math.max(dureeMs + 300, 1800));
+    try { fetch('/activer-ankaa').catch(()=>{}); } catch(_){}
+    if (boutonSanctuaire) boutonSanctuaire.style.display = 'none';
+
+    overlay.open({blockInput:true});
   }
-  function closePapyrus(){ if(papyrusZone&&papyrusTexte){ papyrusZone.style.display='none'; papyrusTexte.textContent=''; } }
 
-  // OEIL anim (si classes existantes)
-  function animeOeilVoix(ms){
-    const oeil = document.querySelector('.oeil-centre');
-    const aura = $('#aura-ankaa');
+  function afficherAttente(){ const a=document.getElementById("points-sacrés"); if(a) a.style.display="block"; }
+  function masquerAttente(){ const a=document.getElementById("points-sacrés"); if(a) a.style.display="none"; }
+
+  function animeOeilVoix(duree_ms){
+    const oeil=document.querySelector('.oeil-centre');
+    const aura=document.getElementById('aura-ankaa');
     if(oeil) oeil.classList.add('playing');
     if(aura) aura.classList.add('active');
-    setTimeout(()=>{ if(oeil) oeil.classList.remove('playing'); if(aura) aura.classList.remove('active'); }, ms || 1800);
+    setTimeout(()=>{ if(oeil) oeil.classList.remove('playing'); if(aura) aura.classList.remove('active'); }, duree_ms);
   }
 
-  // Anti “jaune bloqué” (sync visuel <- état)
-  setInterval(() => {
-    setActive(btnVeille, State.sanctuaire && State.veille);
-    setActive(btnVocal,  State.sanctuaire && State.vocal);
-    if (!State.sanctuaire){
-      setActive(btnModeMini, false);
-      setActive(btnVeille,   false);
-      setActive(btnVocal,    false);
+  function affichePapyrus(texte, duree_ms = 2500){
+    const zone = document.getElementById('papyrus-zone');
+    const span = document.getElementById('papyrus-texte');
+    if(!zone || !span) return;
+    zone.style.display = 'flex';
+    span.textContent = '';
+    let i=0, total=texte.length, delay=Math.max(10, duree_ms/Math.max(1,total));
+    (function next(){ if(i<total){ span.textContent+=texte[i++]; setTimeout(next,delay);} })();
+    if (Number.isFinite(duree_ms)) {
+      const T = Math.max(duree_ms + 300, 2000);
+      setTimeout(closePapyrus, T);
     }
-  }, 500);
+  }
+  function closePapyrus(){ try{ const z=document.getElementById('papyrus-zone'); const s=document.getElementById('papyrus-texte'); if(z) z.style.display='none'; if(s) s.textContent=''; }catch(_){} }
 
-  // ===== Ouverture Sanctuaire (inchangé, juste un peu de garde-fou) =====
-  if (btnSanctuaire){
-    // masque l’UI avant ouverture
-    if (zoneInvocation) zoneInvocation.style.display = 'none';
-    [btnModeMini, btnVeille, btnVocal].forEach(b => { if(b){ b.disabled = true; b.style.visibility = 'hidden'; } });
+  function getMode(){ try{ return window.localStorage.getItem('mode'); }catch(_){ return null; } }
 
-    btnSanctuaire.addEventListener('click', () => {
-      State.sanctuaire = true;
-      play(musique); play(sfxOpen);
+  function envoyerVerbe(e){
+    if(e) e.preventDefault();
+    const prompt=(promptInput?.value||"").trim();
+    if(!prompt) return;
 
-      [btnModeMini, btnVeille, btnVocal].forEach(b => { if(b){ b.disabled = false; b.style.visibility = 'visible'; } });
-      if (zoneInvocation) zoneInvocation.style.display = 'flex';
+    const mode=getMode();
+    if(!mode){ overlay.open({blockInput:false}); return; }
 
-      try { fetch('/activer-ankaa',{method:'POST'}).catch(()=>{}); } catch(_){}
-      btnSanctuaire.style.display = 'none';
-    });
+    btnVerbe?.classList.add('active'); afficherAttente();
+
+    fetch("/invoquer",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify({ prompt, mode })
+    })
+    .then(r=>r.json())
+    .then(data=>{
+      btnVerbe?.classList.remove('active'); masquerAttente();
+      if(data?.reponse){
+        if(data.audio_url){
+          const tts=document.getElementById('tts-player');
+          if(tts){
+            tts.src=data.audio_url+"?t="+Date.now();
+            tts.onloadedmetadata=function(){
+              const duree=Math.max(tts.duration*1000,1800);
+              animeOeilVoix(duree); affichePapyrus(data.reponse,duree); tts.play().catch(()=>{});
+            };
+          }
+        } else {
+          const duree=Math.max(2200, data.reponse.length*50);
+          animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
+        }
+      } else { affichePapyrus("(Silence sacré)"); }
+    })
+    .catch(()=>{ btnVerbe?.classList.remove('active'); masquerAttente(); affichePapyrus("𓂀 Ankaa : Erreur de communication."); });
+
+    if(promptInput) promptInput.value="";
   }
 
-  // ===== Choix de mode (feedback simple / overlay si tu en as un) =====
-  if (btnModeMini){
-    btnModeMini.addEventListener('click', () => {
-      if (!State.sanctuaire) return;
-      play(sfxMode);
-      btnModeMini.classList.add('pulse'); setTimeout(()=>btnModeMini.classList.remove('pulse'), 600);
-      // si tu as un overlay, appelle-le ici (window.overlay.open()…)
-    });
+  if (btnVerbe && promptInput){
+    btnVerbe.addEventListener('click', envoyerVerbe);
+    promptInput.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyerVerbe(e); });
   }
 
-  // ===== Mode VOCAL (toggle) =====
-  if (btnVocal){
-    btnVocal.addEventListener('click', () => {
-      if (!State.sanctuaire) return;
-      State.vocal = !State.vocal;
-      setActive(btnVocal, State.vocal);
-      // couper immédiatement si OFF
-      if (!State.vocal && tts){ try { tts.pause(); tts.currentTime = 0; } catch(_){} }
-      play(sfxClick);
-    });
-  }
-
-  // ===== SOUFFLE (toggle + relance périodique) =====
-  if (btnVeille){
-    btnVeille.addEventListener('click', () => {
-      if (!State.sanctuaire) return;
-
-      // re-clic => OFF immédiat
-      if (State.veille){
-        stopSouffle();
-        return;
+  // ===== Souffle sacré =====
+  let souffleInterval=null, veilleActive=false, souffleEnCours=false;
+  const btnVeille=btnVeilleMini;
+  if(btnVeille){
+    btnVeille.addEventListener('click', function(){
+      if(!veilleActive){
+        veilleActive=true; btnVeille.classList.add('active'); lancerSouffle();
+        souffleInterval=setInterval(lancerSouffle, 30000);
+      } else {
+        veilleActive=false; btnVeille.classList.remove('active');
+        clearInterval(souffleInterval); souffleInterval=null;
       }
-
-      // ON
-      State.veille = true;
-      setActive(btnVeille, true);
-      lancerSouffle();
-
-      // relance périodique pendant ON
-      State.souffleTimer = setInterval(() => {
-        if (State.veille && !State.souffleEnCours) lancerSouffle();
-      }, 30000);
-
-      play(sfxClick);
     });
-  }
-
-  function stopSouffle(){
-    State.veille = false;
-    setActive(btnVeille, false);
-    if (State.souffleTimer){ clearInterval(State.souffleTimer); State.souffleTimer = null; }
-    State.souffleEnCours = false;
-    try { if (tts){ tts.pause(); tts.currentTime = 0; } } catch(_){}
-    closePapyrus();
-    play(sfxClose);
   }
 
   function lancerSouffle(){
-    if (!State.veille || State.souffleEnCours) return;
-    State.souffleEnCours = true;
-
-    fetch('/invoquer', {
-      method : 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body   : JSON.stringify({ prompt:'souffle sacré', mode: getMode() || 'sentinelle8' })
+    if(souffleEnCours) return; souffleEnCours=true;
+    const mode=getMode() || "sentinelle8";
+    fetch("/invoquer",{
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
+      body:JSON.stringify({ prompt:"souffle sacré", mode })
     })
-    .then(r => r.json())
-    .then(data => {
-      if (!State.veille){ State.souffleEnCours = false; return; } // OFF entre-temps
-      if (data?.reponse){
-        if (data.audio_url && tts){
-          tts.src = data.audio_url + '?t=' + Date.now();
-          tts.onloadedmetadata = () => {
-            const duree = Math.max(1800, (tts.duration || 1) * 1000);
-            animeOeilVoix(duree);
-            affichePapyrus(data.reponse, duree);
-            if (State.vocal){ tts.play().catch(()=>{}); }
-            setTimeout(()=>{ State.souffleEnCours = false; }, duree + 300);
-          };
+    .then(r=>r.json())
+    .then(data=>{
+      if(data?.reponse){
+        if(data.audio_url){
+          const tts=document.getElementById('tts-player');
+          if(tts){
+            tts.src=data.audio_url+"?t="+Date.now();
+            tts.onloadedmetadata=function(){
+              const duree=Math.max(tts.duration*1000,1800);
+              animeOeilVoix(duree); affichePapyrus(data.reponse,duree); tts.play().catch(()=>{});
+              setTimeout(()=>{ souffleEnCours=false; }, duree+500);
+            };
+          }
         } else {
-          const duree = Math.max(2000, data.reponse.length * 45);
-          animeOeilVoix(duree);
-          affichePapyrus(data.reponse, duree);
-          setTimeout(()=>{ State.souffleEnCours = false; }, duree + 300);
+          const duree=Math.max(2200, data.reponse.length*50);
+          animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
+          setTimeout(()=>{ souffleEnCours=false; }, duree+500);
         }
-      } else {
-        affichePapyrus('(Silence sacré)');
-        State.souffleEnCours = false;
-      }
+      } else { affichePapyrus("(Silence sacré)"); souffleEnCours=false; }
     })
-    .catch(() => {
-      affichePapyrus('𓂀 Ankaa : Erreur de communication.');
-      State.souffleEnCours = false;
-      stopSouffle(); // évite le jaune bloqué
-    });
+    .catch(()=>{ affichePapyrus("𓂀 Ankaa : Erreur de communication."); souffleEnCours=false; });
   }
 
-  // ===== Mode courant (si tu utilises localStorage pour le choix) =====
-  function getMode(){
-    try { return window.localStorage.getItem('mode') || 'sentinelle8'; }
-    catch(_) { return 'sentinelle8'; }
+  // ===== Overlay Mode =====
+  const overlayEl = document.getElementById('mode-overlay');
+  const optionBtns = Array.from(document.querySelectorAll('#mode-overlay .mode-option'));
+
+  const overlay = {
+    open({blockInput}={blockInput:false}){
+      if(!overlayEl) return;
+      overlayEl.classList.remove('overlay-hidden');
+      overlayEl.setAttribute('aria-hidden','false');
+      if(blockInput){ if(btnVerbe) btnVerbe.disabled=true; if(promptInput) promptInput.disabled=true; }
+      play(sfxOpen);
+    },
+    close(){
+      if(!overlayEl) return;
+      overlayEl.classList.add('overlay-hidden');
+      overlayEl.setAttribute('aria-hidden','true');
+      if(btnVerbe) btnVerbe.disabled=false;
+      if(promptInput) promptInput.disabled=false;
+      play(sfxClose);
+    }
+  };
+  window.overlay = overlay;
+
+  function setMode(modeKey){
+    try{ window.localStorage.setItem('mode', modeKey); }catch(_){}
+    const html = document.documentElement;
+    if (html){
+      html.setAttribute('data-mode', modeKey);
+      html.classList.add('pulse-accent');
+      setTimeout(()=> html.classList.remove('pulse-accent'), 950);
+    }
+    if(btnVerbe)    btnVerbe.disabled=false;
+    if(promptInput) promptInput.disabled=false;
+
+    if (modeKey === 'sentinelle8')      play(sfxGold);
+    else if (modeKey === 'dragosly23')  play(sfxBlue);
+    else if (modeKey === 'invite')      play(sfxIvory);
+    else if (modeKey === 'verbe')       play(sfxViolet);
+
+    overlay.close();
   }
+
+  optionBtns.forEach(btn=>{
+    btn.addEventListener('click', ()=>{ const m=btn.getAttribute('data-mode'); if(m) setMode(m); });
+  });
+
+  if (btnModeMini){
+    btnModeMini.addEventListener('click', ()=>{ overlay.open({blockInput:false}); });
+  }
+
+  document.addEventListener('keydown', (e)=>{
+    if(e.key === 'Escape'){
+      const ov = document.getElementById('mode-overlay');
+      if(ov && !ov.classList.contains('overlay-hidden')){
+        overlay.close();
+      }
+    }
+  });
 });
