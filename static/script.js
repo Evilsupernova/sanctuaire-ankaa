@@ -1,21 +1,17 @@
 // Sanctuaire Ankaa — JS (overlay + souffle + verbe + vocal)
-// (v14) — correctifs : toggle Souffle, toggle Vocal, SFX IDs, états visuels
+// (v15) — correctifs + 6 patchs UX (papyrus+7s, fond lent, musique douce+ducking, vh stable, anti-zoom iOS via CSS, durées texte)
 
 document.addEventListener('DOMContentLoaded', function () {
-  // ⚠️ On NE purge PAS le mode : on mémorise le choix utilisateur entre sessions.
-  // try { window.localStorage.removeItem('mode'); } catch(_) {}
-
-// --vh stable pour les claviers mobiles
-function setVh() {
-  const vh = window.innerHeight * 0.01;
-  document.documentElement.style.setProperty('--vh', `${vh}px`);
-}
-setVh();
-window.addEventListener('resize', setVh);
-window.addEventListener('orientationchange', setVh);
-// Sur iOS, focus clavier peut bouger la hauteur -> on recalcule
-window.addEventListener('focusin', setVh);
-window.addEventListener('focusout', setVh);
+  // --vh stable pour claviers mobiles (évite le "saut" d'UI)
+  function setVh() {
+    const vh = window.innerHeight * 0.01;
+    document.documentElement.style.setProperty('--vh', `${vh}px`);
+  }
+  setVh();
+  window.addEventListener('resize', setVh);
+  window.addEventListener('orientationchange', setVh);
+  window.addEventListener('focusin', setVh);
+  window.addEventListener('focusout', setVh);
 
   // --- Raccourcis DOM
   const zoneInvocation   = document.getElementById('zone-invocation');
@@ -34,11 +30,25 @@ window.addEventListener('focusout', setVh);
   const sClose    = document.getElementById('s-close');
   const sMode     = document.getElementById('s-mode');
 
-  if (musique) musique.volume = 0.04;
-  [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.10));
-  if (sClick) sClick.volume = 0.10;
+  if (musique) musique.volume = 0.04; // PATCH: musique plus douce (-50%)
+  if (tts) tts.volume = 1.0;          // voix au max
+
+  [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.24));
+  if (sClick) sClick.volume = 0.18;
 
   const play = (a) => { try { a && (a.currentTime = 0); a && a.play().catch(()=>{}); } catch(_){ } };
+
+  // Ducking musique pendant la voix (PATCH)
+  let musikVolumeBase = musique ? (musique.volume || 0.04) : 0.04;
+  function duckMusic(on){
+    if (!musique) return;
+    try { musique.volume = Math.max(0, Math.min(1, on ? musikVolumeBase * 0.35 : musikVolumeBase)); } catch(_){}
+  }
+  if (tts) {
+    tts.addEventListener('play',  ()=> duckMusic(true));
+    tts.addEventListener('pause', ()=> duckMusic(false));
+    tts.addEventListener('ended', ()=> duckMusic(false));
+  }
 
   // --- États init UI (avant ouverture du sanctuaire)
   if (zoneInvocation) zoneInvocation.style.display = 'none';
@@ -99,10 +109,7 @@ window.addEventListener('focusout', setVh);
     if(promptInput) promptInput.disabled=false;
     if(btnVocal)    btnVocal.disabled=false;
 
-    // Feedback
-    if (modeKey === 'sentinelle8' || modeKey === 'dragosly23' || modeKey === 'invite' || modeKey === 'verbe') {
-      play(sMode);
-    }
+    if (modeKey === 'sentinelle8' || modeKey === 'dragosly23' || modeKey === 'invite' || modeKey === 'verbe') play(sMode);
     overlay.close();
   }
 
@@ -149,12 +156,14 @@ window.addEventListener('focusout', setVh);
           tts.src=data.audio_url+"?t="+Date.now();
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
-            animeOeilVoix(duree); affichePapyrus(data.reponse,duree + 7000);
+            animeOeilVoix(duree);
+            affichePapyrus(data.reponse, duree + 7000); // PATCH: +7s quand lecture vocale
             tts.play().catch(()=>{});
           };
         } else {
-          const duree=Math.max(2200, data.reponse.length*50);
-          animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
+          const duree=Math.max(2600, data.reponse.length*55); // PATCH: un peu plus long en texte seul
+          animeOeilVoix(duree);
+          affichePapyrus(data.reponse, duree);
         }
       } else { affichePapyrus("(Silence sacré)"); }
     })
@@ -172,24 +181,24 @@ window.addEventListener('focusout', setVh);
     promptInput.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyerVerbe(e); });
   }
 
-  // ===== Souffle sacré (veille) — toggle propre =====
+  // ===== Souffle sacré (veille) — toggle propre
   let souffleInterval=null, veilleActive=false, souffleEnCours=false;
   const btnVeille=btnVeilleMini;
 
   if(btnVeille){
     btnVeille.addEventListener('click', function(){
       if(!veilleActive){
-        // --- activation ---
+        // activation
         veilleActive=true;
         btnVeille.classList.add('active');
         lancerSouffle();
         souffleInterval=setInterval(lancerSouffle, 30000);
       } else {
-        // --- désactivation ---
+        // désactivation
         veilleActive=false;
         btnVeille.classList.remove('active');
         clearInterval(souffleInterval); souffleInterval=null;
-        souffleEnCours=false; // reset état
+        souffleEnCours=false;
       }
       play(sClick);
     });
@@ -212,13 +221,15 @@ window.addEventListener('focusout', setVh);
           tts.src=data.audio_url+"?t="+Date.now();
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
-            animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
+            animeOeilVoix(duree);
+            affichePapyrus(data.reponse, duree + 7000); // PATCH: +7s quand lecture vocale
             tts.play().catch(()=>{});
             setTimeout(()=>{ souffleEnCours=false; }, duree+500);
           };
         } else {
-          const duree=Math.max(2200, data.reponse.length*60);
-          animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
+          const duree=Math.max(2600, data.reponse.length*55); // PATCH: un peu plus long en texte seul
+          animeOeilVoix(duree);
+          affichePapyrus(data.reponse, duree);
           setTimeout(()=>{ souffleEnCours=false; }, duree+500);
         }
       } else { affichePapyrus("(Silence sacré)"); souffleEnCours=false; }
@@ -226,7 +237,7 @@ window.addEventListener('focusout', setVh);
     .catch(()=>{ affichePapyrus("𓂀 Ankaa : Erreur de communication."); souffleEnCours=false; });
   }
 
-  // ===== Mode VOCAL (lecture auto des réponses) — toggle propre =====
+  // ===== Mode VOCAL (lecture auto des réponses) — toggle propre
   let vocalActif = false;
   if (btnVocal) {
     btnVocal.addEventListener('click', () => {
@@ -257,7 +268,6 @@ window.addEventListener('focusout', setVh);
       if(!overlayEl) return;
       overlayEl.classList.add('overlay-hidden');
       overlayEl.setAttribute('aria-hidden','true');
-      // ré-ouverture : si un mode est défini on débloque
       const hasMode = !!getMode();
       if(btnVerbe)    btnVerbe.disabled=!hasMode;
       if(promptInput) promptInput.disabled=!hasMode;
