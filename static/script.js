@@ -30,8 +30,8 @@ document.addEventListener('DOMContentLoaded', function () {
   const sClose    = document.getElementById('s-close');
   const sMode     = document.getElementById('s-mode');
 
-  if (musique) musique.volume = 0.0014; // PATCH: musique plus douce (-50%)
-  if (tts) tts.volume = 1.5;          // voix au max
+  if (musique) musique.volume = 0.04; // PATCH: musique plus douce (-50%)
+  if (tts) tts.volume = 1.0;          // voix au max
 
   [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.24));
   if (sClick) sClick.volume = 0.18;
@@ -39,16 +39,41 @@ document.addEventListener('DOMContentLoaded', function () {
   const play = (a) => { try { a && (a.currentTime = 0); a && a.play().catch(()=>{}); } catch(_){ } };
 
   // Ducking musique pendant la voix (PATCH)
-  let musikVolumeBase = musique ? (musique.volume || 0.01) : 0.01;
+  let musikVolumeBase = musique ? (musique.volume || 0.04) : 0.04;
   function duckMusic(on){
     if (!musique) return;
     try { musique.volume = Math.max(0, Math.min(1, on ? musikVolumeBase * 0.35 : musikVolumeBase)); } catch(_){}
   }
   if (tts) {
-    tts.addEventListener('play',  ()=> duckMusic(true));
-    tts.addEventListener('pause', ()=> duckMusic(false));
-    tts.addEventListener('ended', ()=> duckMusic(false));
-  }
+  let musicPrevMuted = false;
+  let musicPrevVol = 0.04;
+  let musicWasPlaying = false;
+  tts.addEventListener('play',  () => {
+    if (musique) {
+      musicPrevMuted = musique.muted;
+      musicPrevVol = musique.volume;
+      musicWasPlaying = !musique.paused;
+      musique.muted = true;
+    }
+    duckMusic(true);
+  });
+  tts.addEventListener('pause', () => {
+    if (musique) {
+      musique.muted = musicPrevMuted;
+      try { musique.volume = musicPrevVol; } catch(_){}
+      if (musicWasPlaying && musique.paused) { musique.play().catch(()=>{}); }
+    }
+    duckMusic(false);
+  });
+  tts.addEventListener('ended', () => {
+    if (musique) {
+      musique.muted = musicPrevMuted;
+      try { musique.volume = musicPrevVol; } catch(_){}
+      if (musicWasPlaying && musique.paused) { musique.play().catch(()=>{}); }
+    }
+    duckMusic(false);
+  });
+}
 
   // --- États init UI (avant ouverture du sanctuaire)
   if (zoneInvocation) zoneInvocation.style.display = 'none';
