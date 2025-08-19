@@ -1,5 +1,3 @@
-# app.py — Sanctuaire Ankaa (Cloud LLM + Local fallback) — V2 (SSML +6dB, fallbacks, logs)
-
 from flask import Flask, render_template, request, jsonify
 import os, json, random, re, asyncio, math, unicodedata, html
 from pathlib import Path
@@ -123,31 +121,31 @@ def llm_cloud_generate(prompt: str, system_msg: str) -> str | None:
 
 # ================== UTILITAIRES TEXTE ==================
 def nettoyer(txt: str) -> str:
-    return re.sub(r"\s+", " ", (txt or "").replace("\n", " ").strip()).strip()
+    return re.sub(r"\\s+", " ", (txt or "").replace("\\n", " ").strip()).strip()
 
 def remove_emojis(text: str) -> str:
     emoji_pattern = re.compile(
-        "["u"\U0001F600-\U0001F64F"
-        u"\U0001F300-\U0001F5FF"
-        u"\U0001F680-\U0001F6FF"
-        u"\U0001F1E0-\U0001F1FF"
-        u"\U00002702-\U000027B0"
-        u"\U000024C2-\U0001F251"
+        "["u"\\U0001F600-\\U0001F64F"
+        u"\\U0001F300-\\U0001F5FF"
+        u"\\U0001F680-\\U0001F6FF"
+        u"\\U0001F1E0-\\U0001F1FF"
+        u"\\U00002702-\\U000027B0"
+        u"\\U000024C2-\\U0001F251"
         "]+", flags=re.UNICODE)
     return emoji_pattern.sub(r'', text or "")
 
 def nettoyer_pour_tts(txt: str) -> str:
     """(Gardée pour compat) — Nous utilisons maintenant du SSML via build_ssml()."""
     t = txt or ""
-    t = re.sub(r"(?m)^\s*#.*?$", "", t)
+    t = re.sub(r"(?m)^\\s*#.*?$", "", t)
     t = re.sub(r"(?m)^```.*?$", "", t)
     t = re.sub(r"(?m)^---.*?$", "", t)
     t = t.replace("Dialogue :", "")
-    t = re.sub(r"☥[^:\n]+:\s*", "", t)
-    t = re.sub(r"𓂀[^:\n]+:\s*", "", t)
-    t = re.sub(r"\b(speech|voice|pitch|rate|prosody)\s*=\s*[^,\s]+", "", t, flags=re.I)
-    t = re.sub(r"<\/?[^>]+>", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"☥[^:\\n]+:\\s*", "", t)
+    t = re.sub(r"𓂀[^:\\n]+:\\s*", "", t)
+    t = re.sub(r"\\b(speech|voice|pitch|rate|prosody)\\s*=\\s*[^,\\s]+", "", t, flags=re.I)
+    t = re.sub(r"<\\/?[^>]+>", " ", t)
+    t = re.sub(r"\\s+", " ", t).strip()
     return t
 
 def load_json(p: Path, default):
@@ -166,8 +164,8 @@ def _norm(s: str) -> str:
     s = (s or "").lower()
     s = unicodedata.normalize("NFD", s)
     s = "".join(c for c in s if unicodedata.category(c) != "Mn")
-    s = re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç'\-\s]", " ", s)
-    s = re.sub(r"\s+", " ", s).strip()
+    s = re.sub(r"[^a-z0-9àâäéèêëîïôöùûüç'\\-\\s]", " ", s)
+    s = re.sub(r"\\s+", " ", s).strip()
     return s
 
 def _tokenize(s: str):
@@ -183,13 +181,13 @@ def keywords_fr(text: str, k: int = 6):
     return [w for w,_ in freq.most_common(k)]
 
 # ================== IDENTITÉ PAR MODE ==================
-IDENTITY_PATTERNS = [r"\bSandro\b", r"\bDragosly\b", r"\bDragosly23\b", r"\bDRAGOSLY23\b"]
+IDENTITY_PATTERNS = [r"\\bSandro\\b", r"\\bDragosly\\b", r"\\bDragosly23\\b", r"\\bDRAGOSLY23\\b"]
 
 def scrub_identity_text(txt: str) -> str:
     out = txt or ""
     for pat in IDENTITY_PATTERNS:
         out = re.sub(pat, "frère", out, flags=re.IGNORECASE)
-    return re.sub(r"\s+", " ", out).strip()
+    return re.sub(r"\\s+", " ", out).strip()
 
 def identity_policy_for_mode(mode_key: str) -> str:
     if mode_key == "dragosly23":
@@ -225,7 +223,7 @@ def get_random_fragment_unique():
                 continue
             path = DATASET_DIR / file
             try:
-                lignes = [l.strip() for l in path.read_text(encoding="utf-8").split("\n") if l.strip()]
+                lignes = [l.strip() for l in path.read_text(encoding="utf-8").split("\\n") if l.strip()]
                 bloc, mots, idx = "", 0, 0
                 for ligne in lignes:
                     bloc += (" " if bloc else "") + ligne
@@ -251,7 +249,7 @@ def get_random_fragment_unique():
     mots = frag.split()
     if len(mots) > 140:
         frag = " ".join(mots[:140]).rstrip(",;:–- ") + "…"
-    return f"{frag}\n\n𓂂 *Extrait de* « {chemins[i]} »"
+    return f"{frag}\\n\\n𓂂 *Extrait de* « {chemins[i]} »"
 
 # ================== INDEX DU DATASET (BM25) ==================
 FRAGMENTS = []
@@ -261,7 +259,7 @@ N_DOCS = 0
 def _split_paragraphs(txt: str, file_name: str):
     out = []
     if not txt: return out
-    parts = [p.strip() for p in re.split(r"\n\s*\n|(?:[.!?…]\s+)", txt) if p.strip()]
+    parts = [p.strip() for p in re.split(r"\\n\\s*\\n|(?:[.!?…]\\s+)", txt) if p.strip()]
     buf, count = [], 0
     for p in parts:
         w = p.split()
@@ -380,7 +378,7 @@ def empathetic_prefix(emotion: str) -> str:
     return m.get(emotion, "")
 
 def limit_sentences(txt: str, n: int) -> str:
-    parts = re.split(r'(?<=[.!?…])\s+', (txt or "").strip())
+    parts = re.split(r'(?<=[.!?…])\\s+', (txt or "").strip())
     if len(parts) <= n: return (txt or "").strip()
     t = " ".join(parts[:n]).strip()
     if not t.endswith(('.', '!', '?', '…')): t += '…'
@@ -402,7 +400,7 @@ def topic_focus(user_input: str, sources: list, themes: str) -> str:
     ban = {"faire","avoir","être","temps","jour","chose","idée","juste","possible","vraiment","faut","peut"}
     ordered = [w for w,_ in freq.most_common(12) if w not in ban]
     text_norm = _norm(user_input)
-    bigrams = re.findall(r"\b([a-zàâäéèêëîïôöùûüç]{4,}\s+[a-zàâäéèêëîïôöùûüç]{4,})\b", text_norm)
+    bigrams = re.findall(r"\\b([a-zàâäéèêëîïôöùûüç]{4,}\\s+[a-zàâäéèêëîïôöùûüç]{4,})\\b", text_norm)
     for bg in bigrams:
         if all(tok in text_norm for tok in bg.split()):
             if any(tok in bg for tok in ordered[:6]):
@@ -501,14 +499,14 @@ def build_prompt(user_input: str, mode_key: str, style: str, emotion: str, inten
         for i, s in enumerate(sources, 1):
             extrait = " ".join(nettoyer(s["text"]).split()[:90])
             lines.append(f"[S{i}] {s['file']}: {extrait}…")
-        src_block = "Dossiers sacrés (repères contextuels) :\n" + "\n".join(lines) + "\n\n"
+        src_block = "Dossiers sacrés (repères contextuels) :\\n" + "\\n".join(lines) + "\\n\\n"
         details += " Appuie-toi sur ces repères si pertinents. Si c’est insuffisant, dis-le en 1 phrase puis pose UNE question."
     else:
         details += " Si tu manques d’éléments, formule UNE question précise."
 
     memv = ""
     if themes:
-        memv = f"Thèmes à garder à l’esprit : {themes}.\n"
+        memv = f"Thèmes à garder à l’esprit : {themes}.\\n"
 
     humains = { "sentinelle8":"☥ SENTINELLE8","dragosly23":"☥ DRAGOSLY23","invite":"☥ INVITÉ","verbe":"☥ CERCLE" }
     ankaas  = { "sentinelle8":"𓂀 ANKAA","dragosly23":"𓂀 ANKAA JR","invite":"𓂀 ANKAA","verbe":"𓂀 ORACLE" }
@@ -516,7 +514,7 @@ def build_prompt(user_input: str, mode_key: str, style: str, emotion: str, inten
 
     mem = load_json(MODES.get(mode_key, MODES["sentinelle8"])["memory"], {"fragments":[]})
     hist = mem.get("fragments", [])[-5:]
-    history = "".join(f"\n{humain} : {f['prompt']}\n{ankaa} : {f['reponse']}" for f in hist)
+    history = "".join(f"\\n{humain} : {f['prompt']}\\n{ankaa} : {f['reponse']}" for f in hist)
     if mode_key != "dragosly23":
         history = scrub_identity_text(history)
 
@@ -535,20 +533,20 @@ def build_prompt(user_input: str, mode_key: str, style: str, emotion: str, inten
     contexte_vivant = (memv + f"Intention perçue : {intent}.").strip()
 
     return (
-        consigne + "\n" + details + "\n" + inspiration + "\n\n" +
-        (("Contexte vivant : " + contexte_vivant + "\n\n") if contexte_vivant else "") +
+        consigne + "\\n" + details + "\\n" + inspiration + "\\n\\n" +
+        (("Contexte vivant : " + contexte_vivant + "\\n\\n") if contexte_vivant else "") +
         src_block +
-        "Dialogue :" + history + "\n\n" +
-        f"{humain} : {user_input}\n{ankaa} :"
+        "Dialogue :" + history + "\\n\\n" +
+        f"{humain} : {user_input}\\n{ankaa} :"
     )
 
 # ================== TTS (helpers SSML + sélection voix) ==================
-VOICE_SAFE = ["fr-FR-DeniseNeural", "fr-FR-HenriNeural"]  # voix Edge stables
+VOICE_SAFE = ["fr-FR-DeniseNeural", "fr-FR-HenriNeural", "fr-FR-RemyMultilingualNeural"]  # + Rémy (voix homme)
 VOICE_PER_MODE = {
-    "sentinelle8": ["fr-FR-VivienneMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-    "dragosly23":  ["fr-CA-SylvieNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-    "invite":      ["fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-    "verbe":       ["fr-FR-VivienneMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
+    "sentinelle8": ["fr-FR-RemyMultilingualNeural", "fr-FR-VivienneMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
+    "dragosly23":  ["fr-FR-RemyMultilingualNeural", "fr-CA-SylvieNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
+    "invite":      ["fr-FR-RemyMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
+    "verbe":       ["fr-FR-RemyMultilingualNeural", "fr-FR-VivienneMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
 }
 
 def pick_voices(mode_key: str, force_default: bool = False):
@@ -567,13 +565,13 @@ def file_size_ok(p: Path, min_bytes: int = 200) -> bool:
 def clean_text_for_ssml(txt: str) -> str:
     """Nettoie sans retirer le sens, prêt à être échappé XML."""
     t = txt or ""
-    t = re.sub(r"(?m)^\s*#.*?$", "", t)
+    t = re.sub(r"(?m)^\\s*#.*?$", "", t)
     t = re.sub(r"(?m)^```.*?$", "", t)
     t = re.sub(r"(?m)^---.*?$", "", t)
     t = t.replace("Dialogue :", "")
-    t = re.sub(r"☥[^:\n]+:\s*", "", t)
-    t = re.sub(r"𓂀[^:\n]+:\s*", "", t)
-    t = re.sub(r"\s+", " ", t).strip()
+    t = re.sub(r"☥[^:\\n]+:\\s*", "", t)
+    t = re.sub(r"𓂀[^:\\n]+:\\s*", "", t)
+    t = re.sub(r"\\s+", " ", t).strip()
     return t
 
 def build_ssml(text: str, lang: str = "fr-FR", gain_db: int = 6) -> str:
@@ -621,7 +619,7 @@ def generate_response(user_input: str, mode_key: str):
             "— Marche en douceur, la flamme est là.",
             "— Laisse ce souffle grandir en toi."
         ]
-        answer = f"{(prefix + '\n\n') if prefix else ''}{random.choice(preambles)}\n\n{get_random_fragment_unique()}\n\n{random.choice(codas)}"
+        answer = f"{(prefix + '\\n\\n') if prefix else ''}{random.choice(preambles)}\\n\\n{get_random_fragment_unique()}\\n\\n{random.choice(codas)}"
         # Longueur du souffle selon le mode
         if mode_key == "sentinelle8":
             answer = limit_sentences(answer, 7)
@@ -682,9 +680,9 @@ def generate_response(user_input: str, mode_key: str):
             base = limit_sentences(base, cfg["normal_sentences"])
 
         base = build_relance_pertinente(base, user_input, sources, themes_str, intent)
-        base = re.sub(r"(\bmais\b|\bpourtant\b|\bcependant\b)", r"— \1", base, flags=re.IGNORECASE)
+        base = re.sub(r"(\\bmais\\b|\\bpourtant\\b|\\bcependant\\b)", r"— \\1", base, flags=re.IGNORECASE)
         base = base.replace("..", "…").replace("— —", "— ")
-        answer = (prefix + "\n\n" + base).strip() if prefix else base
+        answer = (prefix + "\\n\\n" + base).strip() if prefix else base
 
         # update mémoire thématique
         update_themes(themes_path, user_input, intent)
@@ -709,7 +707,12 @@ def generate_response(user_input: str, mode_key: str):
         # SSML avec +6 dB par défaut (configurable via env TTS_GAIN_DB)
         ssml = build_ssml(answer, lang="fr-FR", gain_db=int(os.getenv("TTS_GAIN_DB", "6")))
 
-        voices = pick_voices(mode_key)
+        # *** PREFERENCE VOIX MASCULINE POUR LE SOUFFLE ***
+        if is_souffle:
+            voices = ["fr-FR-RemyMultilingualNeural", "fr-FR-HenriNeural", "fr-FR-DeniseNeural"] + VOICE_SAFE
+        else:
+            voices = pick_voices(mode_key)
+
         ok, info = asyncio.run(synthese_tts(ssml, voices, tts_path))
         tts_ok, tts_info = ok, info
         if not ok:

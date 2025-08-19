@@ -1,5 +1,5 @@
 // Sanctuaire Ankaa — JS (overlay + souffle + verbe + vocal)
-// (v15) — correctifs + 6 patchs UX (papyrus+7s, fond lent, musique douce+ducking, vh stable, anti-zoom iOS via CSS, durées texte)
+// (v16) — Voix Rémy pour Souffle + robustesse toggles + mini-fix UX
 
 document.addEventListener('DOMContentLoaded', function () {
   // --vh stable pour claviers mobiles (évite le "saut" d'UI)
@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const sClose    = document.getElementById('s-close');
   const sMode     = document.getElementById('s-mode');
 
-  if (musique) musique.volume = 0.04; // PATCH: musique plus douce (-50%)
+  if (musique) musique.volume = 0.04; // musique douce
   if (tts) tts.volume = 1.0;          // voix au max
 
   [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.24));
@@ -38,7 +38,7 @@ document.addEventListener('DOMContentLoaded', function () {
 
   const play = (a) => { try { a && (a.currentTime = 0); a && a.play().catch(()=>{}); } catch(_){ } };
 
-  // Ducking musique pendant la voix (PATCH)
+  // Ducking musique pendant la voix
   let musikVolumeBase = musique ? (musique.volume || 0.04) : 0.04;
   function duckMusic(on){
     if (!musique) return;
@@ -141,6 +141,7 @@ document.addEventListener('DOMContentLoaded', function () {
     const mode=getMode();
     if(!mode){ overlay.open({blockInput:false}); return; }
 
+    // Robustesse toggle (anti-bouton jaune bloqué)
     btnVerbe?.classList.add('active'); afficherAttente();
 
     fetch("/invoquer",{
@@ -157,11 +158,11 @@ document.addEventListener('DOMContentLoaded', function () {
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
             animeOeilVoix(duree);
-            affichePapyrus(data.reponse, duree + 7000); // PATCH: +7s quand lecture vocale
+            affichePapyrus(data.reponse, duree + 7000);
             tts.play().catch(()=>{});
           };
         } else {
-          const duree=Math.max(2600, data.reponse.length*55); // PATCH: un peu plus long en texte seul
+          const duree=Math.max(2600, data.reponse.length*55);
           animeOeilVoix(duree);
           affichePapyrus(data.reponse, duree);
         }
@@ -170,6 +171,10 @@ document.addEventListener('DOMContentLoaded', function () {
     .catch(()=>{
       btnVerbe?.classList.remove('active'); masquerAttente();
       affichePapyrus("𓂀 Ankaa : Erreur de communication.");
+    })
+    .finally(()=>{
+      // Sécurité : on retire toujours l'état actif
+      btnVerbe?.classList.remove('active');
     });
 
     if(promptInput) promptInput.value="";
@@ -197,15 +202,16 @@ document.addEventListener('DOMContentLoaded', function () {
         // désactivation
         veilleActive=false;
         btnVeille.classList.remove('active');
-        clearInterval(souffleInterval); souffleInterval=null;
+        if(souffleInterval){ clearInterval(souffleInterval); souffleInterval=null; }
         souffleEnCours=false;
+        // Si la voix joue et que la veille est coupée, on laisse finir le tts (pas d'arrêt brutal)
       }
       play(sClick);
     });
   }
 
   function lancerSouffle(){
-    if(souffleEnCours) return;
+    if(!veilleActive || souffleEnCours) return;
     souffleEnCours=true;
     const mode=getMode() || "sentinelle8";
 
@@ -216,18 +222,19 @@ document.addEventListener('DOMContentLoaded', function () {
     })
     .then(r=>r.json())
     .then(data=>{
+      if(!veilleActive){ souffleEnCours=false; return; } // si désactivé entre-temps
       if(data?.reponse){
         if(data.audio_url && tts && vocalActif){
           tts.src=data.audio_url+"?t="+Date.now();
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
             animeOeilVoix(duree);
-            affichePapyrus(data.reponse, duree + 7000); // PATCH: +7s quand lecture vocale
+            affichePapyrus(data.reponse, duree + 7000);
             tts.play().catch(()=>{});
             setTimeout(()=>{ souffleEnCours=false; }, duree+500);
           };
         } else {
-          const duree=Math.max(2600, data.reponse.length*55); // PATCH: un peu plus long en texte seul
+          const duree=Math.max(2600, data.reponse.length*55);
           animeOeilVoix(duree);
           affichePapyrus(data.reponse, duree);
           setTimeout(()=>{ souffleEnCours=false; }, duree+500);
