@@ -1,74 +1,78 @@
-*{ box-sizing:border-box; }
+/* Positions & looks d’origine conservés — on ajuste animations & mobile */
+
 html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); overflow:hidden; font-family:'Cinzel Decorative','Georgia',serif; }
-:root{ --chat-h:64px; --tools-gap:16px; }
+:root{ --chat-h:64px; --tools-gap:16px; --vh:1vh; }
 
-.fond-cosmique{ position:fixed; inset:0; z-index:0; background:url('/static/assets/fond_cosmique.jpg') center/cover no-repeat; }
+/* Fond cosmique — ralenti + respirations légères */
+.fond-cosmique{ position:fixed; inset:0; z-index:0; background:url('/static/assets/fond_cosmique.jpg') center/cover no-repeat; animation:cosmosDrift 30s linear infinite; }
+@keyframes cosmosDrift{
+  0%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
+  50%{ transform:translate3d(0,-1%,0) scale(1.01); opacity:.95 }
+  100%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
+}
+/* Pause pendant clavier (mobile) */
+body.keyboard-open .fond-cosmique { animation-play-state: paused; }
 
-/* Header */
+/* Header / Titre / Phrase — (styles d’origine, non déplacés) */
 #en-tete{ position:relative; z-index:2; padding-top: calc(8px + env(safe-area-inset-top)); }
 .titre-sacré{
   text-align:center; color:#ffe066; font-weight:700; letter-spacing:.09em;
-  text-shadow:0 0 10px #000, 0 0 32px #ffe066;
-  margin: 4px 12px 4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
-  font-size: clamp(18px, 4.8vw, 34px);
+  text-shadow:0 0 10px #000, 0 0 32px #ffe066; margin:4px 12px 4px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size: clamp(18px, 4.8vw, 34px);
 }
 .phrase-sacrée{
   text-align:center; color:#fff9c4; font-style:italic;
-  text-shadow:0 0 4px #000, 0 0 18px #ffe066;
-  font-size: clamp(14px, 3.3vw, 19px);
-  margin: 0 12px 0;
+  text-shadow:0 0 4px #000, 0 0 18px #ffe066; font-size: clamp(14px, 3.3vw, 19px); margin:0 12px 0;
 }
 
-/* BARRE D’OUTILS — entre le titre et l’œil (un peu plus bas) */
+/* Barre outils */
 #tools-column{
-  position:relative;
-  margin: 14px auto 8px;
+  position:relative; margin:14px auto 8px;
   display:flex; justify-content:center; align-items:center; gap:var(--tools-gap);
   width:min(92vw,840px); z-index:10050;
 }
 .tool-btn{
   background:rgba(34,28,10,.62); color:#ffe066; border:1px solid rgba(255,224,102,.25);
   width:52px; height:52px; border-radius:30px; font-size:1.12em; cursor:pointer; backdrop-filter:blur(2px);
-  box-shadow:0 0 10px rgba(255,224,102,.18);
-  position: relative; overflow: hidden;
+  box-shadow:0 0 10px rgba(255,224,102,.18); position:relative; overflow:hidden;
+  transition:transform .12s cubic-bezier(.22,.61,.36,1), box-shadow .18s cubic-bezier(.22,.61,.36,1);
 }
-.tool-btn:hover,.tool-btn:focus{ background:#ffe066; color:#2c2108; }
-.tool-btn.active{ background:#ffe066; color:#2c2108; }
+.tool-btn:hover,.tool-btn:focus{ background:#ffe066; color:#2c2108; transform:translateY(-1px) scale(1.03); }
+.tool-btn.active{ background:#ffe066; color:#2c2108; box-shadow:0 0 8px 2px #ffe06699,0 0 1px 1px #222 inset; }
 
-/* ŒIL — un peu plus grand et encore -5% à gauche */
-.oeil-centre{
-  position:relative; z-index:2; width:clamp(500px,82vw,820px);
-  margin: 10px auto 0; transform: translateX(-5%);
-}
-#oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; margin:0 auto; }
-#aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:100%; height:78%; }
+/* Œil + aura */
+.oeil-centre{ position:relative; z-index:2; width:clamp(500px,82vw,820px); margin:10px auto 0; transform: translateX(-5%); }
+#oeil-anim{ display:block; width:100%; height:auto; object-fit:contain; margin:0 auto; transform-origin:50% 55%; }
+.oeil-centre.playing #oeil-anim{ animation: oeilBreathe 2.8s cubic-bezier(.25,.1,.25,1) infinite; }
+@keyframes oeilBreathe{ 0%,100%{transform:scale(1)} 50%{transform:scaleX(1.015) scaleY(0.988)} }
+#aura-ankaa{ position:absolute; left:50%; top:52%; transform:translate(-50%,-50%); pointer-events:none; z-index:1; width:100%; height:78%;
+  opacity:0; transition:opacity 220ms cubic-bezier(.22,.61,.36,1);}
+#aura-ankaa.active{ opacity:.85; animation:auraPulse 3.4s cubic-bezier(.25,.1,.25,1) infinite; }
+@keyframes auraPulse{ 0%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.03)} 100%{transform:translate(-50%,-50%) scale(1)} }
 
-/* BOUTON SANCTUAIRE (bas-centre, disparaît après ouverture) */
+/* Bouton sanctuaire */
 #bouton-sanctuaire{
-  position:fixed; left:50%; transform:translateX(-50%);
-  bottom:calc(14px + env(safe-area-inset-bottom));
+  position:fixed; left:50%; transform:translateX(-50%); bottom:calc(14px + env(safe-area-inset-bottom));
   z-index:10060; width:56px; height:56px; border-radius:40px;
   background:rgba(32,28,8,.70); color:#ffe066; border:1px solid rgba(255,224,102,.35);
-  box-shadow:0 4px 16px rgba(0,0,0,.35), 0 0 10px rgba(255,224,102,.28);
-  font-size:1.25em;
+  box-shadow:0 4px 16px rgba(0,0,0,.35), 0 0 10px rgba(255,224,102,.28); font-size:1.25em;
 }
 #bouton-sanctuaire:hover{ background:#ffe066; color:#2c2108; }
 
-/* PAPYRUS */
+/* Papyrus */
 .papyrus-cercle{
-  position:fixed; left:6vw; right:auto;
-  bottom:calc(var(--chat-h) + 22px + env(safe-area-inset-bottom));
+  position:fixed; left:6vw; right:auto; bottom:calc(var(--chat-h) + 22px + env(safe-area-inset-bottom));
   max-width:min(78vw,860px); z-index:3000; padding:14px 16px;
   background:rgba(0,0,0,.42); border:1.2px solid #e7cd7280; border-radius:18px 28px 18px 28px;
   box-shadow:0 2px 16px #e7cd7296; color:#FFFFF0; backdrop-filter:blur(2.2px);
   display:none; align-items:flex-end;
+  transform:translate3d(-8px,8px,0) scale(.985); opacity:0;
 }
-#papyrus-texte{
-  white-space:pre-wrap; word-break:break-word; font-size:clamp(14px,1.9vw,18px); line-height:1.42;
-  max-height:28vh; overflow:auto; scrollbar-width:thin;
-}
+.papyrus-cercle[style*="display: flex"]{ animation: papyrusIn 380ms cubic-bezier(.22,.61,.36,1) both; }
+@keyframes papyrusIn{ 0%{transform:translate3d(-8px,8px,0) scale(.985);opacity:0} 100%{transform:translate3d(0,0,0) scale(1);opacity:1} }
+#papyrus-texte{ white-space:pre-wrap; word-break:break-word; font-size:clamp(14px,1.9vw,18px); line-height:1.42; max-height:28vh; overflow:auto; scrollbar-width:thin; }
 
-/* ZONE CHAT */
+/* Zone chat */
 .zone-chat{
   position:fixed; z-index:3; left:50%; transform:translateX(-50%);
   bottom:calc(12px + env(safe-area-inset-bottom));
@@ -82,7 +86,7 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 #btn-verbe:hover,#btn-verbe:focus{ background:#fff5c0; color:#2c2108; }
 #btn-verbe.active{ background:#ffe066; color:#2c2108; }
 
-/* OVERLAY MODES */
+/* Overlay (modes) */
 #mode-overlay{ position:fixed; inset:0; z-index:10000; display:grid; place-items:center; }
 .overlay-hidden{ display:none !important; }
 .overlay-backdrop{
@@ -111,77 +115,11 @@ html,body{ margin:0; padding:0; width:100vw; height:calc(var(--vh,1vh)*100); ove
 }
 .mode-option:hover,.mode-option:focus{ transform:translateY(-2px) scale(1.02); border-color:rgba(255,224,102,.55); box-shadow:0 0 18px rgba(255,224,102,.22); }
 
-.toast{
-  position:fixed; left:50%; transform:translateX(-50%);
-  bottom:calc(20px + env(safe-area-inset-bottom)); z-index:12000;
-  background:rgba(0,0,0,.75); color:#fff; padding:8px 12px; border-radius:10px; font-size:14px;
-}
-/* --- Pleine hauteur mobile --- */
-html, body { height: 100%; margin: 0; background-color: #000; }
-:root { --vh: 1vh; }
-body {
-  min-height: 100svh; min-height: 100lvh; min-height: calc(var(--vh) * 100);
-  background-size: cover; background-position: center center; background-repeat: no-repeat;
-}
-
-/* =======================
-   Animations modernes + PATCHS
-   ======================= */
-:root{
-  --ease-out: cubic-bezier(.22,.61,.36,1);
-  --ease-io:  cubic-bezier(.25,.1,.25,1);
-  --dur-xs: 220ms; --dur-s: 380ms; --dur-m: 680ms; --dur-l: 1400ms;
-}
-
-/* Fond cosmique respirant — PATCH: plus lent (30s) */
-.fond-cosmique{ position:fixed; inset:0; z-index:0; background:url('/static/assets/fond_cosmique.jpg') center/cover no-repeat; animation: cosmosDrift 30s linear infinite; }
-@keyframes cosmosDrift{
-  0%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
-  50%{ transform:translate3d(0,-1%,0) scale(1.01); opacity:.95 }
-  100%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
-}
-
-/* Pause du fond quand le clavier est ouvert (évite le “saut”) */
-body.keyboard-open .fond-cosmique { animation-play-state: paused; }
-
-/* Œil + aura (inchangé mais smooth) */
-#oeil-anim{ transform-origin:50% 55%; }
-.oeil-centre.playing #oeil-anim{ animation: oeilBreathe 2.8s cubic-bezier(.25,.1,.25,1) infinite; }
-@keyframes oeilBreathe{ 0%,100%{transform:scale(1)} 50%{transform:scaleX(1.015) scaleY(0.988)} }
-#aura-ankaa{ opacity:0; transition:opacity 220ms cubic-bezier(.22,.61,.36,1); }
-#aura-ankaa.active{ opacity:.85; animation:auraPulse 3.4s cubic-bezier(.25,.1,.25,1) infinite; }
-@keyframes auraPulse{ 0%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.03)} 100%{transform:translate(-50%,-50%) scale(1)} }
-
-/* Boutons : hover/active élégant + pas de “jaune bloqué” (le JS retire .active) */
-.tool-btn{ transition:transform .12s cubic-bezier(.22,.61,.36,1), box-shadow .18s cubic-bezier(.22,.61,.36,1); }
-.tool-btn:hover,.tool-btn:focus{ transform:translateY(-1px) scale(1.03); }
-.tool-btn.active{ box-shadow:0 0 8px 2px #ffe06699,0 0 1px 1px #222 inset; }
-
-/* Papyrus : entrée douce */
-.papyrus-cercle{ transform:translate3d(-8px,8px,0) scale(.985); opacity:0; }
-.papyrus-cercle[style*="display: flex"]{ animation: papyrusIn 380ms cubic-bezier(.22,.61,.36,1) both; }
-@keyframes papyrusIn{ 0%{transform:translate3d(-8px,8px,0) scale(.985);opacity:0} 100%{transform:translate3d(0,0,0) scale(1);opacity:1} }
-
-/* Points sacrés */
-#points-sacrés{ opacity:0; animation: pointsPulse 1.2s var(--ease-io) infinite; }
-@keyframes pointsPulse{ 0%,100%{opacity:.15;transform:translateY(0)} 50%{opacity:.55;transform:translateY(-1px)} }
-
-/* Overlay doux */
-#mode-overlay:not(.overlay-hidden) .overlay-backdrop{ animation: backdropFade 380ms cubic-bezier(.22,.61,.36,1) both; }
-#mode-overlay:not(.overlay-hidden) .overlay-panel{ animation: panelIn 380ms cubic-bezier(.22,.61,.36,1) both; }
-@keyframes backdropFade{ from{opacity:0} to{opacity:1} }
-@keyframes panelIn{ 0%{transform:translate3d(0,6px,0) scale(.98);opacity:0} 100%{transform:translate3d(0,0,0) scale(1);opacity:1} }
-
-/* Feedback pulse */
-.pulse-accent{ animation: pulseAccent var(--dur-xs) var(--ease-out) 1; }
-@keyframes pulseAccent{ 0%{filter:drop-shadow(0 0 0 rgba(255,224,102,0))} 100%{filter:drop-shadow(0 0 12px rgba(255,224,102,.35))} }
-
-/* Accessibilité + Anti-zoom iOS (PATCH) */
+/* Accessibilité / motion / iOS anti‑zoom */
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration:1ms!important; animation-iteration-count:1!important; transition-duration:1ms!important; }
 }
-/* iOS empêche le zoom auto si font-size >= 16px : on met 17px juste pour iOS */
-html { -webkit-text-size-adjust: 100%; }
+html{ -webkit-text-size-adjust:100%; }
 @supports (-webkit-touch-callout: none) {
-  .zone-chat input { font-size: 17px; }
+  .zone-chat input { font-size: 17px; } /* évite zoom auto iOS */
 }

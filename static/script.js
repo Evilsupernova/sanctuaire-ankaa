@@ -1,18 +1,13 @@
-// Sanctuaire Ankaa — v16 PRO
-// - Anti double-clic (verrou)
-// - Reset fiable des boutons (ended/error/abort)
-// - Papyrus +7s quand audio
-// - Ducking musique pendant voix
-// - Fond gelé quand clavier (évite saut/zoom visuel)
-// - Zéro changement de positions UI
+// Sanctuaire Ankaa — v4 (anti double‑clic, reset boutons fiable, papyrus +7s en lecture, ducking, --vh stable)
 
 document.addEventListener('DOMContentLoaded', function () {
-  // --vh stable pour mobiles
-  function setVh(){ document.documentElement.style.setProperty('--vh', `${window.innerHeight*0.01}px`); }
+  // --vh stable + détection clavier (mobile)
+  function setVh(){ const vh = window.innerHeight * 0.01; document.documentElement.style.setProperty('--vh', `${vh}px`); }
   setVh();
-  ['resize','orientationchange','focusin','focusout'].forEach(ev=>window.addEventListener(ev,setVh));
-  window.addEventListener('focusin', ()=> document.body.classList.add('keyboard-open'));
-  window.addEventListener('focusout',()=> document.body.classList.remove('keyboard-open'));
+  window.addEventListener('resize', setVh);
+  window.addEventListener('orientationchange', setVh);
+  window.addEventListener('focusin', ()=>{ setVh(); document.body.classList.add('keyboard-open'); });
+  window.addEventListener('focusout', ()=>{ setVh(); document.body.classList.remove('keyboard-open'); });
 
   // DOM
   const zoneInvocation   = document.getElementById('zone-invocation');
@@ -31,27 +26,19 @@ document.addEventListener('DOMContentLoaded', function () {
   const sClose  = document.getElementById('s-close');
   const sMode   = document.getElementById('s-mode');
 
-  if (musique) musique.volume = 0.04;   // musique plus douce
-  if (tts)     tts.volume     = 1.0;    // voix au max
-
+  if (musique) musique.volume = 0.04; // musique douce
+  if (tts) tts.volume = 1.0;          // voix au max
   [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.24));
   if (sClick) sClick.volume = 0.18;
-  const play = (a)=>{ try{ a && (a.currentTime=0) && a.play().catch(()=>{});}catch(_){ } };
 
-  // Ducking musique
+  const play = (a)=>{ try{ a && (a.currentTime=0); a && a.play().catch(()=>{});}catch(_){} };
+
+  // Ducking musique pendant la voix
   let musikVolumeBase = musique ? (musique.volume || 0.04) : 0.04;
   function duckMusic(on){
-    if(!musique) return;
-    try { musique.volume = on ? musikVolumeBase*0.35 : musikVolumeBase; } catch(_){}
+    if (!musique) return;
+    try { musique.volume = on ? musikVolumeBase * 0.35 : musikVolumeBase; } catch(_){}
   }
-
-  // États init
-  if (zoneInvocation) zoneInvocation.style.display = 'none';
-  if (btnModeMini)    { btnModeMini.disabled = true; btnModeMini.style.visibility = 'hidden'; }
-  if (btnVeilleMini)  btnVeilleMini.disabled = true;
-  if (btnVerbe)       btnVerbe.disabled = true;
-  if (promptInput)    promptInput.disabled = true;
-  if (btnVocal)       btnVocal.disabled = true;
 
   // Attente
   function afficherAttente(){ const a=document.getElementById("points-sacrés"); if(a) a.style.display="block"; }
@@ -75,10 +62,7 @@ document.addEventListener('DOMContentLoaded', function () {
     span.textContent = '';
     let i=0, total=(texte||'').length, delay=Math.max(10, (duree_ms||2500)/Math.max(1,total));
     (function next(){ if(i<total){ span.textContent+=texte[i++]; setTimeout(next,delay);} })();
-    if (Number.isFinite(duree_ms)) {
-      const T = Math.max((duree_ms||2500) + 300, 2000);
-      setTimeout(closePapyrus, T);
-    }
+    if (Number.isFinite(duree_ms)) setTimeout(closePapyrus, Math.max((duree_ms||2500)+300, 2000));
   }
   function closePapyrus(){
     try{
@@ -89,7 +73,7 @@ document.addEventListener('DOMContentLoaded', function () {
     }catch(_){}
   }
 
-  // Mode persistant
+  // Mode
   function getMode(){ try{ return window.localStorage.getItem('mode'); }catch(_){ return null; } }
   function setMode(modeKey){
     try{ window.localStorage.setItem('mode', modeKey); }catch(_){}
@@ -106,25 +90,53 @@ document.addEventListener('DOMContentLoaded', function () {
     overlay.close();
   }
 
-  // Sanctuaire
-  if (boutonSanctuaire) boutonSanctuaire.addEventListener('click', activerSanctuaire);
-  function activerSanctuaire() {
+  // Init UI
+  if (zoneInvocation) zoneInvocation.style.display = 'none';
+  if (btnModeMini)    { btnModeMini.disabled = true; btnModeMini.style.visibility = 'hidden'; }
+  if (btnVeilleMini)  btnVeilleMini.disabled = true;
+  if (btnVerbe)       btnVerbe.disabled = true;
+  if (promptInput)    promptInput.disabled = true;
+  if (btnVocal)       btnVocal.disabled = true;
+
+  // Ouvrir sanctuaire
+  if (boutonSanctuaire) boutonSanctuaire.addEventListener('click', ()=>{
     if (musique) musique.play().catch(()=>{});
     if (zoneInvocation) zoneInvocation.style.display = 'flex';
-    if (btnModeMini)   { btnModeMini.disabled = false; btnModeMini.style.visibility = 'visible'; }
-    if (btnVeilleMini) btnVeilleMini.disabled = false;
-    if (btnVerbe)      btnVerbe.disabled      = true;
-    if (promptInput)   promptInput.disabled   = true;
-    if (btnVocal)      btnVocal.disabled      = true;
+    if (btnModeMini)   { btnModeMini.disabled=false; btnModeMini.style.visibility='visible'; }
+    if (btnVeilleMini) btnVeilleMini.disabled=false;
+    if (btnVerbe)      btnVerbe.disabled=true;
+    if (promptInput)   promptInput.disabled=true;
+    if (btnVocal)      btnVocal.disabled=true;
     try { fetch('/activer-ankaa').catch(()=>{}); } catch(_){}
-    if (boutonSanctuaire) boutonSanctuaire.style.display = 'none';
+    boutonSanctuaire.style.display = 'none';
     overlay.open({blockInput:true});
     play(sOpen);
+  });
+
+  // VOCAL toggle
+  let vocalActif = false;
+  if (btnVocal) {
+    btnVocal.addEventListener('click', () => {
+      vocalActif = !vocalActif;
+      btnVocal.classList.toggle('active', vocalActif);
+      if (!vocalActif && tts && !tts.paused) { try { tts.pause(); } catch(_){ } }
+      play(sMode);
+    });
   }
 
-  // ===== Envoi "Verbe" (anti double-clic) =====
-  let demandeEnCours = false;
+  // Reset UI quand la voix finit / est interrompue / erreur
+  if (tts) {
+    const resetUiAfterVoice = () => {
+      duckMusic(false);
+      if (!vocalActif) btnVocal?.classList.remove('active');
+      if (!veilleActive) btnVeilleMini?.classList.remove('active');
+    };
+    tts.addEventListener('play',  ()=> duckMusic(true));
+    ['ended','pause','error','abort'].forEach(evt => tts.addEventListener(evt, resetUiAfterVoice));
+  }
 
+  // VERBE (anti double‑clic)
+  let demandeEnCours = false;
   function envoyerVerbe(e){
     if(e) e.preventDefault();
     if (demandeEnCours) return;
@@ -138,7 +150,8 @@ document.addEventListener('DOMContentLoaded', function () {
     btnVerbe?.classList.add('active'); afficherAttente();
 
     fetch("/invoquer",{
-      method:"POST", headers:{ "Content-Type":"application/json" },
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
       body:JSON.stringify({ prompt, mode })
     })
     .then(r=>r.json())
@@ -149,7 +162,7 @@ document.addEventListener('DOMContentLoaded', function () {
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
             animeOeilVoix(duree);
-            affichePapyrus(data.reponse, duree + 7000); // +7s en lecture
+            affichePapyrus(data.reponse, duree + 7000); // +7s quand lecture vocale
             tts.play().catch(()=>{});
           };
         } else {
@@ -157,7 +170,9 @@ document.addEventListener('DOMContentLoaded', function () {
           animeOeilVoix(duree);
           affichePapyrus(data.reponse, duree);
         }
-      } else { affichePapyrus("(Silence sacré)"); }
+      } else {
+        affichePapyrus("(Silence sacré)");
+      }
     })
     .catch(()=>{
       affichePapyrus("𓂀 Ankaa : Erreur de communication.");
@@ -176,9 +191,8 @@ document.addEventListener('DOMContentLoaded', function () {
     promptInput.addEventListener('keypress', e=>{ if(e.key==='Enter') envoyerVerbe(e); });
   }
 
-  // ===== Souffle sacré (veille) =====
-  let souffleInterval=null, veilleActive=false, souffleEnCours=false, ttsSouffle=false;
-
+  // SOUFFLE (veille)
+  let souffleInterval=null, veilleActive=false, souffleEnCours=false;
   if(btnVeilleMini){
     btnVeilleMini.addEventListener('click', function(){
       if(!veilleActive){
@@ -190,19 +204,19 @@ document.addEventListener('DOMContentLoaded', function () {
         veilleActive=false;
         btnVeilleMini.classList.remove('active');
         clearInterval(souffleInterval); souffleInterval=null;
-        souffleEnCours=false; ttsSouffle=false;
+        souffleEnCours=false;
       }
       play(sClick);
     });
   }
-
   function lancerSouffle(){
     if(souffleEnCours) return;
     souffleEnCours=true;
     const mode=getMode() || "sentinelle8";
 
     fetch("/invoquer",{
-      method:"POST", headers:{ "Content-Type":"application/json" },
+      method:"POST",
+      headers:{ "Content-Type":"application/json" },
       body:JSON.stringify({ prompt:"souffle sacré", mode })
     })
     .then(r=>r.json())
@@ -213,8 +227,7 @@ document.addEventListener('DOMContentLoaded', function () {
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
             animeOeilVoix(duree);
-            affichePapyrus(data.reponse, duree + 7000); // +7s
-            ttsSouffle = true;
+            affichePapyrus(data.reponse, duree + 7000);
             tts.play().catch(()=>{});
             setTimeout(()=>{ souffleEnCours=false; }, duree+500);
           };
@@ -229,31 +242,7 @@ document.addEventListener('DOMContentLoaded', function () {
     .catch(()=>{ affichePapyrus("𓂀 Ankaa : Erreur de communication."); souffleEnCours=false; });
   }
 
-  // ===== Mode Vocal =====
-  let vocalActif = false;
-  if (btnVocal) {
-    btnVocal.addEventListener('click', () => {
-      vocalActif = !vocalActif;
-      btnVocal.classList.toggle('active', vocalActif);
-      if (!vocalActif && tts && !tts.paused) { try { tts.pause(); } catch(_){ } }
-      play(sMode);
-    });
-  }
-
-  // ===== TTS events : duck + reset fiable =====
-  if (tts) {
-    tts.addEventListener('play',  ()=> duckMusic(true));
-    const resetUiAfterVoice = () => {
-      duckMusic(false);
-      if (!vocalActif) btnVocal?.classList.remove('active');
-      if (!veilleActive) btnVeilleMini?.classList.remove('active');
-      ttsSouffle = false;
-      souffleEnCours = false;
-    };
-    ['pause','ended','error','abort'].forEach(evt => tts.addEventListener(evt, resetUiAfterVoice));
-  }
-
-  // ===== Overlay modes =====
+  // Overlay (modes)
   const overlayEl = document.getElementById('mode-overlay');
   const optionBtns = Array.from(document.querySelectorAll('#mode-overlay .mode-option'));
   const overlay = {
@@ -261,7 +250,11 @@ document.addEventListener('DOMContentLoaded', function () {
       if(!overlayEl) return;
       overlayEl.classList.remove('overlay-hidden');
       overlayEl.setAttribute('aria-hidden','false');
-      if(blockInput){ if(btnVerbe) btnVerbe.disabled=true; if(promptInput) promptInput.disabled=true; if(btnVocal) btnVocal.disabled=true; }
+      if(blockInput){
+        if(btnVerbe) btnVerbe.disabled=true;
+        if(promptInput) promptInput.disabled=true;
+        if(btnVocal) btnVocal.disabled=true;
+      }
       play(sOpen);
     },
     close(){
@@ -278,17 +271,10 @@ document.addEventListener('DOMContentLoaded', function () {
   window.overlay = overlay;
 
   optionBtns.forEach(btn=>{
-    btn.addEventListener('click', ()=> {
-      const m=btn.getAttribute('data-mode');
-      if(m) setMode(m);
-    });
+    btn.addEventListener('click', ()=>{ const m=btn.getAttribute('data-mode'); if(m) setMode(m); });
   });
+  if (btnModeMini){ btnModeMini.addEventListener('click', ()=>{ overlay.open({blockInput:false}); play(sOpen); }); }
 
-  if (btnModeMini){
-    btnModeMini.addEventListener('click', ()=>{ overlay.open({blockInput:false}); play(sClick); });
-  }
-
-  // ESC ferme overlay
   document.addEventListener('keydown', (e)=>{
     if(e.key === 'Escape'){
       const ov = document.getElementById('mode-overlay');
