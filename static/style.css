@@ -134,7 +134,7 @@ body {
 }
 
 /* Fond cosmique respirant */
-.fond-cosmique{ animation: cosmosDrift var(--dur-l) linear infinite; }
+.fond-cosmique{ animation: cosmosDrift 50s linear infinite; }
 @keyframes cosmosDrift{
   0%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
   50%{ transform:translate3d(0,-1%,0) scale(1.01); opacity:.95 }
@@ -176,4 +176,9 @@ body {
 /* Accessibilité */
 @media (prefers-reduced-motion: reduce){
   *{ animation-duration:1ms!important; animation-iteration-count:1!important; transition-duration:1ms!important; }
+}
+/* Anti-zoom iOS sur les champs (évite le saut d’UI quand le clavier s’ouvre) */
+html { -webkit-text-size-adjust: 100%; }
+@supports (-webkit-touch-callout: none) {
+  .zone-chat input { font-size: 17px; } /* >=16px empêche iOS de zoomer */
 }

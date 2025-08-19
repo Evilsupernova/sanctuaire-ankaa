@@ -5,6 +5,18 @@ document.addEventListener('DOMContentLoaded', function () {
   // ⚠️ On NE purge PAS le mode : on mémorise le choix utilisateur entre sessions.
   // try { window.localStorage.removeItem('mode'); } catch(_) {}
 
+// --vh stable pour les claviers mobiles
+function setVh() {
+  const vh = window.innerHeight * 0.01;
+  document.documentElement.style.setProperty('--vh', `${vh}px`);
+}
+setVh();
+window.addEventListener('resize', setVh);
+window.addEventListener('orientationchange', setVh);
+// Sur iOS, focus clavier peut bouger la hauteur -> on recalcule
+window.addEventListener('focusin', setVh);
+window.addEventListener('focusout', setVh);
+
   // --- Raccourcis DOM
   const zoneInvocation   = document.getElementById('zone-invocation');
   const btnModeMini      = document.getElementById('btn-mode-mini');
@@ -22,9 +34,9 @@ document.addEventListener('DOMContentLoaded', function () {
   const sClose    = document.getElementById('s-close');
   const sMode     = document.getElementById('s-mode');
 
-  if (musique) musique.volume = 0.08;
-  [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.24));
-  if (sClick) sClick.volume = 0.18;
+  if (musique) musique.volume = 0.04;
+  [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.10));
+  if (sClick) sClick.volume = 0.10;
 
   const play = (a) => { try { a && (a.currentTime = 0); a && a.play().catch(()=>{}); } catch(_){ } };
 
@@ -137,7 +149,7 @@ document.addEventListener('DOMContentLoaded', function () {
           tts.src=data.audio_url+"?t="+Date.now();
           tts.onloadedmetadata=function(){
             const duree=Math.max(tts.duration*1000,1800);
-            animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
+            animeOeilVoix(duree); affichePapyrus(data.reponse,duree + 7000);
             tts.play().catch(()=>{});
           };
         } else {
@@ -205,7 +217,7 @@ document.addEventListener('DOMContentLoaded', function () {
             setTimeout(()=>{ souffleEnCours=false; }, duree+500);
           };
         } else {
-          const duree=Math.max(2200, data.reponse.length*50);
+          const duree=Math.max(2200, data.reponse.length*60);
           animeOeilVoix(duree); affichePapyrus(data.reponse,duree);
           setTimeout(()=>{ souffleEnCours=false; }, duree+500);
         }
