@@ -134,38 +134,41 @@ body {
 }
 
 /* Fond cosmique respirant — PATCH: plus lent (30s) */
-.fond-cosmique{ animation: cosmosDrift 30s linear infinite; }
+.fond-cosmique{ position:fixed; inset:0; z-index:0; background:url('/static/assets/fond_cosmique.jpg') center/cover no-repeat; animation: cosmosDrift 30s linear infinite; }
 @keyframes cosmosDrift{
   0%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
   50%{ transform:translate3d(0,-1%,0) scale(1.01); opacity:.95 }
   100%{ transform:translate3d(0,0,0) scale(1); opacity:.92 }
 }
 
-/* Œil + aura */
+/* Pause du fond quand le clavier est ouvert (évite le “saut”) */
+body.keyboard-open .fond-cosmique { animation-play-state: paused; }
+
+/* Œil + aura (inchangé mais smooth) */
 #oeil-anim{ transform-origin:50% 55%; }
-.oeil-centre.playing #oeil-anim{ animation: oeilBreathe 2.8s var(--ease-io) infinite; }
+.oeil-centre.playing #oeil-anim{ animation: oeilBreathe 2.8s cubic-bezier(.25,.1,.25,1) infinite; }
 @keyframes oeilBreathe{ 0%,100%{transform:scale(1)} 50%{transform:scaleX(1.015) scaleY(0.988)} }
-#aura-ankaa{ opacity:0; transition:opacity var(--dur-xs) var(--ease-out); }
-#aura-ankaa.active{ opacity:.85; animation:auraPulse 3.4s var(--ease-io) infinite; }
+#aura-ankaa{ opacity:0; transition:opacity 220ms cubic-bezier(.22,.61,.36,1); }
+#aura-ankaa.active{ opacity:.85; animation:auraPulse 3.4s cubic-bezier(.25,.1,.25,1) infinite; }
 @keyframes auraPulse{ 0%{transform:translate(-50%,-50%) scale(1)} 50%{transform:translate(-50%,-50%) scale(1.03)} 100%{transform:translate(-50%,-50%) scale(1)} }
 
-/* Boutons */
-.tool-btn{ transition:transform .12s var(--ease-out), box-shadow .18s var(--ease-out); }
+/* Boutons : hover/active élégant + pas de “jaune bloqué” (le JS retire .active) */
+.tool-btn{ transition:transform .12s cubic-bezier(.22,.61,.36,1), box-shadow .18s cubic-bezier(.22,.61,.36,1); }
 .tool-btn:hover,.tool-btn:focus{ transform:translateY(-1px) scale(1.03); }
 .tool-btn.active{ box-shadow:0 0 8px 2px #ffe06699,0 0 1px 1px #222 inset; }
 
-/* Papyrus */
+/* Papyrus : entrée douce */
 .papyrus-cercle{ transform:translate3d(-8px,8px,0) scale(.985); opacity:0; }
-.papyrus-cercle[style*="display: flex"]{ animation: papyrusIn var(--dur-s) var(--ease-out) both; }
+.papyrus-cercle[style*="display: flex"]{ animation: papyrusIn 380ms cubic-bezier(.22,.61,.36,1) both; }
 @keyframes papyrusIn{ 0%{transform:translate3d(-8px,8px,0) scale(.985);opacity:0} 100%{transform:translate3d(0,0,0) scale(1);opacity:1} }
 
 /* Points sacrés */
 #points-sacrés{ opacity:0; animation: pointsPulse 1.2s var(--ease-io) infinite; }
 @keyframes pointsPulse{ 0%,100%{opacity:.15;transform:translateY(0)} 50%{opacity:.55;transform:translateY(-1px)} }
 
-/* Overlay */
-#mode-overlay:not(.overlay-hidden) .overlay-backdrop{ animation: backdropFade var(--dur-s) var(--ease-out) both; }
-#mode-overlay:not(.overlay-hidden) .overlay-panel{ animation: panelIn var(--dur-s) var(--ease-out) both; }
+/* Overlay doux */
+#mode-overlay:not(.overlay-hidden) .overlay-backdrop{ animation: backdropFade 380ms cubic-bezier(.22,.61,.36,1) both; }
+#mode-overlay:not(.overlay-hidden) .overlay-panel{ animation: panelIn 380ms cubic-bezier(.22,.61,.36,1) both; }
 @keyframes backdropFade{ from{opacity:0} to{opacity:1} }
 @keyframes panelIn{ 0%{transform:translate3d(0,6px,0) scale(.98);opacity:0} 100%{transform:translate3d(0,0,0) scale(1);opacity:1} }
 
