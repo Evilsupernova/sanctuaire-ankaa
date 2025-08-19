@@ -1,7 +1,7 @@
-# app.py — Sanctuaire Ankaa (Cloud LLM + Local fallback) — V2 (SSML +6dB, fallbacks, logs)
+# app.py — Sanctuaire Ankaa (Cloud LLM + Local fallback)
 
 from flask import Flask, render_template, request, jsonify
-import os, json, random, re, asyncio, math, unicodedata, html
+import os, json, random, re, asyncio, math, unicodedata
 from pathlib import Path
 from datetime import datetime
 from threading import Lock
@@ -123,7 +123,7 @@ def llm_cloud_generate(prompt: str, system_msg: str) -> str | None:
 
 # ================== UTILITAIRES TEXTE ==================
 def nettoyer(txt: str) -> str:
-    return re.sub(r"\s+", " ", (txt or "").replace("\n", " ").strip()).strip()
+    return re.sub(r"\s+", " ", (txt or "").replace("\n", " ")).strip()
 
 def remove_emojis(text: str) -> str:
     emoji_pattern = re.compile(
@@ -137,7 +137,7 @@ def remove_emojis(text: str) -> str:
     return emoji_pattern.sub(r'', text or "")
 
 def nettoyer_pour_tts(txt: str) -> str:
-    """(Gardée pour compat) — Nous utilisons maintenant du SSML via build_ssml()."""
+    """Évite les artefacts prononcés (balises, 'speech=', etc.)."""
     t = txt or ""
     t = re.sub(r"(?m)^\s*#.*?$", "", t)
     t = re.sub(r"(?m)^```.*?$", "", t)
@@ -542,90 +542,15 @@ def build_prompt(user_input: str, mode_key: str, style: str, emotion: str, inten
         f"{humain} : {user_input}\n{ankaa} :"
     )
 
-# ================== TTS (helpers SSML + sélection voix) ==================
-VOICE_SAFE = ["fr-FR-DeniseNeural", "fr-FR-HenriNeural"]  # voix Edge stables
-VOICE_PER_MODE = {
-    "sentinelle8": ["fr-FR-VivienneMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-    "dragosly23":  ["fr-CA-SylvieNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-    "invite":      ["fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-    "verbe":       ["fr-FR-VivienneMultilingualNeural", "fr-FR-DeniseNeural", "fr-FR-HenriNeural"],
-}
-
-def pick_voices(mode_key: str, force_default: bool = False):
-    base = VOICE_PER_MODE.get(mode_key, [])
-    if force_default or not base:
-        base = []
-    # On termine par des voix sûres quoi qu'il arrive
-    return base + VOICE_SAFE
-
-def file_size_ok(p: Path, min_bytes: int = 200) -> bool:
-    try:
-        return p.exists() and p.stat().st_size >= min_bytes
-    except Exception:
-        return False
-
-def clean_text_for_ssml(txt: str) -> str:
-    """Nettoie sans retirer le sens, prêt à être échappé XML."""
-    t = txt or ""
-    t = re.sub(r"(?m)^\s*#.*?$", "", t)
-    t = re.sub(r"(?m)^```.*?$", "", t)
-    t = re.sub(r"(?m)^---.*?$", "", t)
-    t = t.replace("Dialogue :", "")
-    t = re.sub(r"☥[^:\n]+:\s*", "", t)
-    t = re.sub(r"𓂀[^:\n]+:\s*", "", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
-
-
-def purge_parasites(txt: str) -> str:
-    """Retire tout vocabulaire/trace technique non destiné à l'utilisateur."""
-    if not txt: return ""
-    t = txt
-
-    # Supprime blocs entre crochets type [TTS] [S1] [INDEX]
-    t = re.sub(r"\[[^\]]+\]", " ", t)
-
-    # Supprime URLs et chemins
-    t = re.sub(r"https?://\S+|\b\w+\.\w{2,}(?:/\S*)?", " ", t)
-
-    # Supprime mots techniques fréquents
-    tech_words = r"(prosody|ssml|pitch|rate|voice|api|stack|traceback|exception|debug|error|json|headers|content-type|endpoint|request|response|token)"
-    t = re.sub(tech_words, " ", t, flags=re.IGNORECASE)
-
-    # Supprime lignes "Dossiers sacrés" / "Dialogue :" si jamais renvoyées
-    t = re.sub(r"(?mi)^\s*(Dossiers sacrés.*|Dialogue\s*:.*)$", " ", t)
-
-    # Nettoyage espaces
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
-def build_ssml(text: str, lang: str = "fr-FR", gain_db: int = 6) -> str:
-    """Construit un SSML avec un boost de volume (par défaut +6dB)."""
-    safe = html.escape(clean_text_for_ssml(text), quote=True)
-    gain  = f"+{gain_db}dB" if gain_db >= 0 else f"{gain_db}dB"
-    return f"""<speak version="1.0" xml:lang="{lang}">
-  <prosody volume="{gain}">{safe}</prosody>
-</speak>"""
-
-async def synthese_tts(text_or_ssml: str, voices: list[str], out_file: Path) -> tuple[bool, str]:
-    """
-    Essaie plusieurs voix; renvoie (ok, voice_used_or_error).
-    `text_or_ssml` peut être du SSML (détecté automatiquement par Edge TTS).
-    """
-    last_err = ""
-    for v in voices:
-        try:
-            com = Communicate(text_or_ssml, v)
-            await com.save(str(out_file))
-            if file_size_ok(out_file):
-                return True, v
-            last_err = f"Fichier trop petit avec voix {v}"
-        except Exception as e:
-            last_err = f"Erreur {type(e).__name__} avec voix {v}: {e}"
-    return False, last_err or "Echec TTS inconnu"
+# ================== TTS ==================
+async def synthese_tts(text: str, voice: str, out_file: Path):
+    to_say = (text or " ").strip()
+    await Communicate(to_say, voice).save(str(out_file))
 
 # ================== GÉNÉRATION ==================
 def generate_response(user_input: str, mode_key: str):
     mode   = MODES.get(mode_key, MODES["sentinelle8"])
+    voice  = mode["voice"]
     style  = infer_style(user_input)
     emotion= detect_emotion(user_input)
     intent = detect_intent(user_input)
@@ -653,8 +578,10 @@ def generate_response(user_input: str, mode_key: str):
             answer = limit_sentences(answer, 10)
         else:
             answer = limit_sentences(answer, 12)
+        voice = "fr-FR-RemyMultilingualNeural"
+
+    # ---- INVOCATION ----
     else:
-        # ---- INVOCATION ----
         sanitized = user_input if mode_key == "dragosly23" else scrub_identity_text(user_input)
         sources = retrieve_fragments(sanitized, k=3, min_score=1.2)
         themes_path = mode["themes"]
@@ -719,37 +646,17 @@ def generate_response(user_input: str, mode_key: str):
         mem["fragments"] = mem["fragments"][-200:]
     save_json(mem_path, mem)
 
-    # ===== TTS (SSML avec volume boost + fallbacks de voix) =====
+    # TTS
+    tts_text = nettoyer_pour_tts(answer)
     tts_path = AUDIO_DIR / "anka_tts.mp3"
-    tts_ok, tts_info = False, ""
-    audio_url = ""
     try:
         if tts_path.exists():
             try: tts_path.unlink()
             except Exception: pass
-
-        # SSML avec +6 dB par défaut (configurable via env TTS_GAIN_DB)
-        answer_clean = purge_parasites(answer)
-        ssml = build_ssml(answer_clean, lang="fr-FR", gain_db=int(os.getenv("TTS_GAIN_DB", "6")))
-
-        voices = pick_voices(mode_key)
-        ok, info = asyncio.run(synthese_tts(ssml, voices, tts_path))
-        tts_ok, tts_info = ok, info
-        if not ok:
-            ok2, info2 = asyncio.run(synthese_tts(ssml, VOICE_SAFE, tts_path))
-            tts_ok, tts_info = ok2, info2
-
-        audio_url = "/static/assets/anka_tts.mp3" if (tts_ok and file_size_ok(tts_path)) else ""
+        asyncio.run(synthese_tts(tts_text, voice, tts_path))
+        audio_url = "/static/assets/anka_tts.mp3" if (tts_path.exists() and tts_path.stat().st_size > 800) else ""
     except Exception as e:
-        tts_ok, audio_url = False, ""
-        tts_info = f"Exception TTS globale: {e}"
-
-    # Log sobre côté serveur (visible sur Render)
-    try:
-        size = (tts_path.stat().st_size if tts_path.exists() else 0)
-    except Exception:
-        size = 0
-    print(f"[TTS] ok={tts_ok} info={tts_info} size={size}")
+        print("Erreur TTS :", e); audio_url = ""
 
     return answer or "𓂀 Silence sacré…", audio_url
 
@@ -767,7 +674,7 @@ def invoquer():
         if mode != "dragosly23":
             prompt = scrub_identity_text(prompt)
         texte, audio_url = generate_response(prompt, mode)
-        return jsonify({"reponse": purge_parasites(texte), "audio_url": audio_url, "tts": bool(audio_url)})
+        return jsonify({"reponse": texte, "audio_url": audio_url})
     except Exception as e:
         import traceback; traceback.print_exc()
         return jsonify({"error":"Erreur interne","details":str(e)}), 500
