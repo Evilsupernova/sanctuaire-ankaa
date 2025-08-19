@@ -51,6 +51,13 @@ MISTRAL_MODEL   = os.getenv("MISTRAL_MODEL", "mistral-small-latest")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.7"))
 LLM_MAX_TOK     = int(os.getenv("LLM_MAX_TOKENS", "400"))
 
+DEBUG = os.getenv("DEBUG", "0") == "1"
+
+def log(*args, **kwargs):
+    if DEBUG:
+        print(*args, **kwargs)
+
+
 def llm_cloud_generate(prompt: str, system_msg: str) -> str | None:
     """Appel au LLM cloud si activé, sinon None."""
     if not USE_LLM:
@@ -116,7 +123,7 @@ def llm_cloud_generate(prompt: str, system_msg: str) -> str | None:
 
         return None
     except Exception as e:
-        print("[llm_cloud_generate error]", e)
+        log("[llm_cloud_generate error]", e)
         return None
 
 # ================== UTILITAIRES TEXTE ==================
@@ -297,7 +304,7 @@ def build_index():
             for t in set(toks):
                 DF[t] += 1
     N_DOCS = len(FRAGMENTS)
-    print(f"[INDEX] {N_DOCS} fragments indexés.")
+    log(f"[INDEX] {N_DOCS} fragments indexés.")
 
 def _bm25_scores(query_tokens, k1=1.5, b=0.75):
     if not FRAGMENTS: return []
@@ -729,7 +736,7 @@ def generate_response(user_input: str, mode_key: str):
         size = (tts_path.stat().st_size if tts_path.exists() else 0)
     except Exception:
         size = 0
-    print(f"[TTS] ok={tts_ok} info={tts_info} size={size}")
+    pass  # silence sacré, pas de log technique
 
     return answer or "𓂀 Silence sacré…", audio_url
 

@@ -30,7 +30,7 @@ document.addEventListener('DOMContentLoaded', function () {
   const sClose    = document.getElementById('s-close');
   const sMode     = document.getElementById('s-mode');
 
-  if (musique) musique.volume = 0.04; // musique douce
+  if (musique) musique.volume = 0.02; // musique très basse en permanence // musique douce
   if (tts) tts.volume = 1.0;          // voix au max
 
   [sOpen, sClose, sMode].forEach(a => a && (a.volume = 0.24));
@@ -42,7 +42,7 @@ document.addEventListener('DOMContentLoaded', function () {
   let musikVolumeBase = musique ? (musique.volume || 0.04) : 0.04;
   function duckMusic(on){
     if (!musique) return;
-    try { musique.volume = Math.max(0, Math.min(1, on ? musikVolumeBase * 0.35 : musikVolumeBase)); } catch(_){}
+    try { musique.volume = Math.max(0, Math.min(1, on ? musikVolumeBase * 0.25 : musikVolumeBase)); } catch(_){}
   }
   if (tts) {
     tts.addEventListener('play',  ()=> duckMusic(true));
